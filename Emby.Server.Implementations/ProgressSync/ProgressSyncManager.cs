@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
@@ -18,6 +19,8 @@ namespace Emby.Server.Implementations.ProgressSync;
 /// <inheritdoc />
 public sealed class ProgressSyncManager : IProgressSyncManager
 {
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
+
     private readonly object _syncLock = new();
     private readonly IUserManager _userManager;
     private readonly IUserDataManager _userDataManager;
@@ -236,7 +239,7 @@ public sealed class ProgressSyncManager : IProgressSyncManager
     private void SaveConfiguration()
     {
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        var json = JsonSerializer.Serialize(Configuration, new JsonSerializerOptions { WriteIndented = true });
+        var json = JsonSerializer.Serialize(Configuration, JsonOptions);
         File.WriteAllText(_path, json);
     }
 
