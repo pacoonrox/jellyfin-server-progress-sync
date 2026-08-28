@@ -31,6 +31,7 @@ using Emby.Server.Implementations.Library.SimilarItems;
 using Emby.Server.Implementations.Localization;
 using Emby.Server.Implementations.Playlists;
 using Emby.Server.Implementations.Plugins;
+using Emby.Server.Implementations.ProgressSync;
 using Emby.Server.Implementations.QuickConnect;
 using Emby.Server.Implementations.ScheduledTasks;
 using Emby.Server.Implementations.Serialization;
@@ -69,6 +70,7 @@ using MediaBrowser.Controller.IO;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.LibraryTaskScheduler;
 using MediaBrowser.Controller.LiveTv;
+using MediaBrowser.Controller.ProgressSync;
 using MediaBrowser.Controller.Lyrics;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.MediaSegments;
@@ -549,6 +551,8 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<IBlurayExaminer, BdInfoExaminer>();
 
             serviceCollection.AddSingleton<IUserDataManager, UserDataManager>();
+            serviceCollection.AddSingleton<ProgressSyncManager>();
+            serviceCollection.AddSingleton<IProgressSyncManager>(sp => sp.GetRequiredService<ProgressSyncManager>());
 
             serviceCollection.AddSingleton<BaseItemRepository>();
             serviceCollection.AddSingleton<IItemRepository>(sp => sp.GetRequiredService<BaseItemRepository>());
