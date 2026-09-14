@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
@@ -139,6 +140,98 @@ public static class UserEntityExtensions
             currentPreference.Value = value;
         }
     }
+
+    /// <summary>
+    /// Gets the user's two-factor authentication policy.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <returns>The two-factor authentication policy.</returns>
+    public static TwoFactorAuthenticationPolicy GetTwoFactorAuthenticationPolicy(this User entity)
+    {
+        var value = entity.GetPreference(PreferenceKind.TwoFactorAuthenticationPolicy).FirstOrDefault();
+        return Enum.TryParse<TwoFactorAuthenticationPolicy>(value, true, out var policy)
+            ? policy
+            : TwoFactorAuthenticationPolicy.Disabled;
+    }
+
+    /// <summary>
+    /// Sets the user's two-factor authentication policy.
+    /// </summary>
+    /// <param name="entity">The entity to update.</param>
+    /// <param name="policy">The two-factor authentication policy.</param>
+    public static void SetTwoFactorAuthenticationPolicy(this User entity, TwoFactorAuthenticationPolicy policy)
+        => entity.SetPreference(PreferenceKind.TwoFactorAuthenticationPolicy, new[] { policy.ToString() });
+
+    /// <summary>
+    /// Gets a two-factor authentication preference value.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <param name="preference">The preference kind.</param>
+    /// <returns>The preference value.</returns>
+    public static string? GetTwoFactorAuthenticationValue(this User entity, PreferenceKind preference)
+        => entity.GetPreference(preference).FirstOrDefault();
+
+    /// <summary>
+    /// Sets a two-factor authentication preference value.
+    /// </summary>
+    /// <param name="entity">The entity to update.</param>
+    /// <param name="preference">The preference kind.</param>
+    /// <param name="value">The preference value.</param>
+    public static void SetTwoFactorAuthenticationValue(this User entity, PreferenceKind preference, string? value)
+        => entity.SetPreference(preference, string.IsNullOrWhiteSpace(value) ? Array.Empty<string>() : new[] { value });
+
+    /// <summary>
+    /// Gets a value indicating whether two-factor authentication is registered.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <returns><c>true</c> if two-factor authentication is registered.</returns>
+    public static bool IsTwoFactorAuthenticationEnabled(this User entity)
+        => bool.TryParse(entity.GetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationEnabled), out var enabled) && enabled;
+
+    /// <summary>
+    /// Sets whether two-factor authentication is registered.
+    /// </summary>
+    /// <param name="entity">The entity to update.</param>
+    /// <param name="enabled">Whether two-factor authentication is registered.</param>
+    public static void SetTwoFactorAuthenticationEnabled(this User entity, bool enabled)
+        => entity.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationEnabled, enabled.ToString());
+
+    /// <summary>
+    /// Gets failed two-factor authentication attempts.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <returns>The failed attempt count.</returns>
+    public static int GetTwoFactorAuthenticationFailedAttemptCount(this User entity)
+        => int.TryParse(entity.GetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationFailedAttemptCount), out var count) ? count : 0;
+
+    /// <summary>
+    /// Sets failed two-factor authentication attempts.
+    /// </summary>
+    /// <param name="entity">The entity to update.</param>
+    /// <param name="count">The failed attempt count.</param>
+    public static void SetTwoFactorAuthenticationFailedAttemptCount(this User entity, int count)
+        => entity.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationFailedAttemptCount, count.ToString(CultureInfo.InvariantCulture));
+
+    /// <summary>
+    /// Gets the user's automatic logout timeout in inactive minutes.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <returns>The automatic logout timeout in inactive minutes.</returns>
+    public static int GetInactiveLogoutMinutes(this User entity)
+    {
+        var value = entity.GetPreference(PreferenceKind.InactiveLogoutMinutes).FirstOrDefault();
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) && minutes > 0
+            ? minutes
+            : 0;
+    }
+
+    /// <summary>
+    /// Sets the user's automatic logout timeout in inactive minutes.
+    /// </summary>
+    /// <param name="entity">The entity to update.</param>
+    /// <param name="minutes">The automatic logout timeout in inactive minutes.</param>
+    public static void SetInactiveLogoutMinutes(this User entity, int minutes)
+        => entity.SetPreference(PreferenceKind.InactiveLogoutMinutes, new[] { Math.Max(0, minutes).ToString(CultureInfo.InvariantCulture) });
 
     /// <summary>
     /// Checks whether this user is currently allowed to use the server.

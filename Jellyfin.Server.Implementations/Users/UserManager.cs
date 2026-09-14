@@ -527,7 +527,9 @@ namespace Jellyfin.Server.Implementations.Users
                     SyncPlayAccess = user.SyncPlayAccess,
                     BlockedChannels = user.GetPreferenceValues<Guid>(PreferenceKind.BlockedChannels),
                     BlockedMediaFolders = user.GetPreferenceValues<Guid>(PreferenceKind.BlockedMediaFolders),
-                    BlockUnratedItems = user.GetPreferenceValues<UnratedItem>(PreferenceKind.BlockUnratedItems)
+                    BlockUnratedItems = user.GetPreferenceValues<UnratedItem>(PreferenceKind.BlockUnratedItems),
+                    TwoFactorAuthenticationPolicy = user.GetTwoFactorAuthenticationPolicy(),
+                    InactiveLogoutMinutes = user.GetInactiveLogoutMinutes()
                 }
             };
         }
@@ -537,11 +539,14 @@ namespace Jellyfin.Server.Implementations.Users
             string username,
             string password,
             string remoteEndPoint,
+            string? authFailureSource,
             bool isUserSession)
         {
+            authFailureSource = string.IsNullOrWhiteSpace(authFailureSource) ? $"IP: {remoteEndPoint}" : authFailureSource;
+
             if (string.IsNullOrWhiteSpace(username))
             {
-                _logger.LogInformation("Authentication request without username has been denied (IP: {IP}).", remoteEndPoint);
+                _logger.LogInformation("Authentication request without username has been denied ({Source}).", authFailureSource);
                 throw new ArgumentNullException(nameof(username));
             }
 
@@ -614,18 +619,18 @@ namespace Jellyfin.Server.Implementations.Users
                 if (user is null)
                 {
                     _logger.LogInformation(
-                        "Authentication request for {UserName} has been denied (IP: {IP}).",
+                        "Authentication request for {UserName} has been denied ({Source}).",
                         username,
-                        remoteEndPoint);
+                        authFailureSource);
                     throw new AuthenticationException("Invalid username or password entered.");
                 }
 
                 if (user.HasPermission(PermissionKind.IsDisabled))
                 {
                     _logger.LogInformation(
-                        "Authentication request for {UserName} has been denied because this account is currently disabled (IP: {IP}).",
+                        "Authentication request for {UserName} has been denied because this account is currently disabled ({Source}).",
                         username,
-                        remoteEndPoint);
+                        authFailureSource);
                     throw new SecurityException(
                         $"The {user.Username} account is currently disabled. Please consult with your administrator.");
                 }
@@ -698,9 +703,9 @@ namespace Jellyfin.Server.Implementations.Users
                         .ConfigureAwait(false);
 
                     _logger.LogInformation(
-                        "Authentication request for {UserName} has been denied (IP: {IP}).",
+                        "Authentication request for {UserName} has been denied ({Source}).",
                         user.Username,
-                        remoteEndPoint);
+                        authFailureSource);
                 }
             }
 
@@ -875,6 +880,8 @@ namespace Jellyfin.Server.Implementations.Users
                     user.LoginAttemptsBeforeLockout = maxLoginAttempts;
                     user.MaxActiveSessions = policy.MaxActiveSessions;
                     user.SyncPlayAccess = policy.SyncPlayAccess;
+                    user.SetTwoFactorAuthenticationPolicy(policy.TwoFactorAuthenticationPolicy);
+                    user.SetInactiveLogoutMinutes(policy.InactiveLogoutMinutes);
                     user.SetPermission(PermissionKind.IsAdministrator, policy.IsAdministrator);
                     user.SetPermission(PermissionKind.IsHidden, policy.IsHidden);
                     user.SetPermission(PermissionKind.IsDisabled, policy.IsDisabled);

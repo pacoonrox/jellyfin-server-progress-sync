@@ -28,4 +28,14 @@ public class AuthenticationResult
     /// Gets or sets the server id.
     /// </summary>
     public string ServerId { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether a two-factor authentication code is required before a session token can be issued.
+    /// </summary>
+    public bool RequiresTwoFactorAuthentication { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether two-factor authentication setup is required before a session token can be issued.
+    /// </summary>
+    public bool RequiresTwoFactorSetup { get; set; }
 }

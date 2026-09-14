@@ -65,6 +65,8 @@ namespace MediaBrowser.Model.Users
             EnablePublicSharing = true;
             EnableRemoteAccess = true;
             SyncPlayAccess = SyncPlayUserAccessType.CreateAndJoinGroups;
+            TwoFactorAuthenticationPolicy = TwoFactorAuthenticationPolicy.Disabled;
+            InactiveLogoutMinutes = 0;
         }
 
         /// <summary>
@@ -195,5 +197,15 @@ namespace MediaBrowser.Model.Users
         /// </summary>
         /// <value>Access level to SyncPlay features.</value>
         public SyncPlayUserAccessType SyncPlayAccess { get; set; }
+
+        /// <summary>
+        /// Gets or sets the two-factor authentication policy for this user.
+        /// </summary>
+        public TwoFactorAuthenticationPolicy TwoFactorAuthenticationPolicy { get; set; }
+
+        /// <summary>
+        /// Gets or sets the automatic web logout timeout in inactive minutes. A value of 0 disables the timeout.
+        /// </summary>
+        public int InactiveLogoutMinutes { get; set; }
     }
 }

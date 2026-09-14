@@ -14,4 +14,9 @@ public class AuthenticateUserByName
     /// Gets or sets the plain text password.
     /// </summary>
     public string? Pw { get; set; }
+
+    /// <summary>
+    /// Gets or sets the two-factor authentication code.
+    /// </summary>
+    public string? TwoFactorCode { get; set; }
 }

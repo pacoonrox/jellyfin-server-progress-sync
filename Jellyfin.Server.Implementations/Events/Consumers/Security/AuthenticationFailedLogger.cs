@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Controller.Events;
@@ -29,6 +30,55 @@ namespace Jellyfin.Server.Implementations.Events.Consumers.Security
             _activityManager = activityManager;
         }
 
+        private static string? AddPart(string? value, string name)
+        {
+            return string.IsNullOrWhiteSpace(value) ? null : $"{name}: {value}";
+        }
+
+        private static string? FirstForwardedIp(string? value)
+        {
+            return value?.Split(',').Select(part => part.Trim()).FirstOrDefault(part => !string.IsNullOrWhiteSpace(part));
+        }
+
+        private static string? FirstNonEmpty(params string?[] values)
+        {
+            return values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value));
+        }
+
+        private static string GetDisplayRemoteEndPoint(AuthenticationRequestEventArgs eventArgs)
+        {
+            return FirstNonEmpty(
+                eventArgs.CfConnectingIp,
+                eventArgs.CfConnectingIpv6,
+                eventArgs.TrueClientIp,
+                FirstForwardedIp(eventArgs.ForwardedFor),
+                eventArgs.RemoteEndPoint)
+                ?? "unknown";
+        }
+
+        private static string GetOverview(AuthenticationRequestEventArgs eventArgs)
+        {
+            return string.Join(
+                "; ",
+                new[]
+                {
+                    AddPart(eventArgs.RemoteEndPoint, "Proxy-IP"),
+                    AddPart(eventArgs.DeviceName, "Device"),
+                    AddPart(eventArgs.App, "App"),
+                    AddPart(eventArgs.AppVersion, "App-Version"),
+                    AddPart(eventArgs.UserAgent, "User-Agent"),
+                    AddPart(eventArgs.RequestHost, "Host"),
+                    AddPart(eventArgs.RequestScheme, "Scheme"),
+                    AddPart(eventArgs.OriginalHost, "X-Original-Host"),
+                    AddPart(eventArgs.ForwardedHost, "X-Forwarded-Host"),
+                    AddPart(eventArgs.ForwardedProto, "X-Forwarded-Proto"),
+                    AddPart(eventArgs.ForwardedFor, "X-Forwarded-For"),
+                    AddPart(eventArgs.CfConnectingIp, "CF-Connecting-IP"),
+                    AddPart(eventArgs.CfConnectingIpv6, "CF-Connecting-IPv6"),
+                    AddPart(eventArgs.TrueClientIp, "True-Client-IP")
+                }.OfType<string>());
+        }
+
         /// <inheritdoc />
         public async Task OnEvent(AuthenticationRequestEventArgs eventArgs)
         {
@@ -41,10 +91,11 @@ namespace Jellyfin.Server.Implementations.Events.Consumers.Security
                 Guid.Empty)
             {
                 LogSeverity = LogLevel.Error,
+                Overview = GetOverview(eventArgs),
                 ShortOverview = string.Format(
                     CultureInfo.InvariantCulture,
                     _localizationManager.GetServerLocalizedString("LabelIpAddressValue"),
-                    eventArgs.RemoteEndPoint),
+                    GetDisplayRemoteEndPoint(eventArgs)),
             }).ConfigureAwait(false);
         }
     }

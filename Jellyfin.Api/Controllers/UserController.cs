@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 using Jellyfin.Api.Constants;
@@ -219,10 +220,21 @@ public class UserController : BaseJellyfinApiController
             {
                 App = auth.Client,
                 AppVersion = auth.Version,
+                CfConnectingIp = Request.Headers["CF-Connecting-IP"].ToString(),
+                CfConnectingIpv6 = Request.Headers["CF-Connecting-IPv6"].ToString(),
                 DeviceId = auth.DeviceId,
                 DeviceName = auth.Device,
+                ForwardedFor = Request.Headers["X-Forwarded-For"].ToString(),
+                ForwardedHost = Request.Headers["X-Forwarded-Host"].ToString(),
+                ForwardedProto = Request.Headers["X-Forwarded-Proto"].ToString(),
+                OriginalHost = Request.Headers["X-Original-Host"].ToString(),
                 Password = request.Pw,
+                RequestHost = Request.Host.ToString(),
+                RequestScheme = Request.Scheme,
                 RemoteEndPoint = HttpContext.GetNormalizedRemoteIP().ToString(),
+                TrueClientIp = Request.Headers["True-Client-IP"].ToString(),
+                TwoFactorCode = request.TwoFactorCode,
+                UserAgent = Request.Headers.UserAgent.ToString(),
                 Username = request.Username
             }).ConfigureAwait(false);
 
@@ -291,6 +303,8 @@ public class UserController : BaseJellyfinApiController
         if (request.ResetPassword)
         {
             await _userManager.ResetPassword(user.Id).ConfigureAwait(false);
+            var currentToken = User.GetToken();
+            await _sessionManager.RevokeUserTokens(user.Id, currentToken).ConfigureAwait(false);
         }
         else
         {
@@ -300,6 +314,7 @@ public class UserController : BaseJellyfinApiController
                     user.Username,
                     request.CurrentPw ?? string.Empty,
                     HttpContext.GetNormalizedRemoteIP().ToString(),
+                    null,
                     false).ConfigureAwait(false);
 
                 if (success is null)
@@ -309,9 +324,7 @@ public class UserController : BaseJellyfinApiController
             }
 
             await _userManager.ChangePassword(user.Id, request.NewPw ?? string.Empty).ConfigureAwait(false);
-
             var currentToken = User.GetToken();
-
             await _sessionManager.RevokeUserTokens(user.Id, currentToken).ConfigureAwait(false);
         }
 
@@ -338,6 +351,152 @@ public class UserController : BaseJellyfinApiController
         [FromRoute, Required] Guid userId,
         [FromBody, Required] UpdateUserPassword request)
         => UpdateUserPassword(userId, request);
+
+    /// <summary>
+    /// Gets two-factor authentication status for a user.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <response code="200">Two-factor authentication status returned.</response>
+    /// <response code="403">User is not allowed to view two-factor authentication status.</response>
+    /// <response code="404">User not found.</response>
+    /// <returns>The two-factor authentication status.</returns>
+    [HttpGet("{userId}/TwoFactor")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<TwoFactorStatusDto> GetTwoFactorStatus([FromRoute, Required] Guid userId)
+    {
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        if (!CanManageTwoFactor(userId))
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, "User is not allowed to view two-factor authentication status.");
+        }
+
+        return GetTwoFactorStatus(user);
+    }
+
+    /// <summary>
+    /// Starts two-factor authentication registration for a user.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <response code="200">Two-factor authentication setup returned.</response>
+    /// <response code="403">Two-factor authentication setup is not allowed.</response>
+    /// <response code="404">User not found.</response>
+    /// <returns>The two-factor authentication setup information.</returns>
+    [HttpPost("{userId}/TwoFactor/Start")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TwoFactorSetupDto>> StartTwoFactorSetup([FromRoute, Required] Guid userId)
+    {
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        if (!CanManageTwoFactor(userId) || user.GetTwoFactorAuthenticationPolicy() == TwoFactorAuthenticationPolicy.Disabled)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, "Two-factor authentication setup is not allowed for this user.");
+        }
+
+        var secret = TotpHelper.GenerateSecret();
+        user.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationPendingSecret, secret);
+        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+
+        return new TwoFactorSetupDto
+        {
+            ManualEntryKey = secret,
+            OtpAuthUri = TotpHelper.BuildOtpAuthUri("Jellyfin", user.Username, secret)
+        };
+    }
+
+    /// <summary>
+    /// Enables two-factor authentication for a user after verifying the pending setup code.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <param name="request">The verification request.</param>
+    /// <response code="200">Two-factor authentication enabled.</response>
+    /// <response code="403">Two-factor authentication setup is not allowed or the code is invalid.</response>
+    /// <response code="404">User not found.</response>
+    /// <returns>The two-factor authentication status.</returns>
+    [HttpPost("{userId}/TwoFactor/Enable")]
+    [Authorize]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult<TwoFactorStatusDto>> EnableTwoFactor(
+        [FromRoute, Required] Guid userId,
+        [FromBody, Required] VerifyTwoFactorRequest request)
+    {
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        if (!CanManageTwoFactor(userId) || user.GetTwoFactorAuthenticationPolicy() == TwoFactorAuthenticationPolicy.Disabled)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, "Two-factor authentication setup is not allowed for this user.");
+        }
+
+        var pendingSecret = user.GetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationPendingSecret);
+        if (!TotpHelper.VerifyCode(pendingSecret ?? string.Empty, request.Code, DateTimeOffset.UtcNow))
+        {
+            user.SetTwoFactorAuthenticationFailedAttemptCount(user.GetTwoFactorAuthenticationFailedAttemptCount() + 1);
+            await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+            _logger.LogWarning("Two-factor setup verification failed for user {UserId}.", userId);
+            return StatusCode(StatusCodes.Status403Forbidden, "Invalid two-factor authentication code.");
+        }
+
+        user.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationSecret, pendingSecret);
+        user.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationPendingSecret, null);
+        user.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationRegisteredDate, DateTimeOffset.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        user.SetTwoFactorAuthenticationEnabled(true);
+        user.SetTwoFactorAuthenticationFailedAttemptCount(0);
+        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+
+        return GetTwoFactorStatus(user);
+    }
+
+    /// <summary>
+    /// Resets two-factor authentication for a user.
+    /// </summary>
+    /// <param name="userId">The user id.</param>
+    /// <response code="204">Two-factor authentication reset.</response>
+    /// <response code="404">User not found.</response>
+    /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
+    [HttpDelete("{userId}/TwoFactor")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<ActionResult> ResetTwoFactor([FromRoute, Required] Guid userId)
+    {
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            return NotFound();
+        }
+
+        user.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationSecret, null);
+        user.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationPendingSecret, null);
+        user.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationRegisteredDate, null);
+        user.SetTwoFactorAuthenticationEnabled(false);
+        user.SetTwoFactorAuthenticationFailedAttemptCount(0);
+        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+
+        var currentToken = User.GetToken();
+        await _sessionManager.RevokeUserTokens(user.Id, currentToken).ConfigureAwait(false);
+
+        return NoContent();
+    }
 
     /// <summary>
     /// Updates a user.
@@ -597,6 +756,27 @@ public class UserController : BaseJellyfinApiController
         }
 
         return _userManager.GetUserDto(user);
+    }
+
+    private bool CanManageTwoFactor(Guid userId)
+        => User.IsInRole(UserRoles.Administrator) || User.GetUserId().Equals(userId);
+
+    private static TwoFactorStatusDto GetTwoFactorStatus(Jellyfin.Database.Implementations.Entities.User user)
+    {
+        DateTimeOffset? registeredDate = null;
+        var registeredDateValue = user.GetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationRegisteredDate);
+        if (DateTimeOffset.TryParse(registeredDateValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsedDate))
+        {
+            registeredDate = parsedDate;
+        }
+
+        return new TwoFactorStatusDto
+        {
+            Policy = user.GetTwoFactorAuthenticationPolicy(),
+            IsEnabled = user.IsTwoFactorAuthenticationEnabled(),
+            RegisteredDate = registeredDate,
+            FailedAttemptCount = user.GetTwoFactorAuthenticationFailedAttemptCount()
+        };
     }
 
     private IEnumerable<UserDto> Get(bool? isHidden, bool? isDisabled, bool filterByDevice, bool filterByNetwork)

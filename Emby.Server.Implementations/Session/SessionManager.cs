@@ -69,6 +69,7 @@ namespace Emby.Server.Implementations.Session
 
         private Timer _idleTimer;
         private Timer _inactiveTimer;
+        private Timer _inactiveLogoutTimer;
 
         private DtoOptions _itemInfoDtoOptions;
         private bool _disposed;
@@ -259,6 +260,7 @@ namespace Emby.Server.Implementations.Session
             var session = GetSessionInfo(appName, appVersion, deviceId, deviceName, remoteEndPoint, user);
             var lastActivityDate = session.LastActivityDate;
             session.LastActivityDate = activityDate;
+            StartCheckTimers();
 
             if (user is not null)
             {
@@ -604,6 +606,7 @@ namespace Emby.Server.Implementations.Session
         private void StartCheckTimers()
         {
             _idleTimer ??= new Timer(CheckForIdlePlayback, null, TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(5));
+            _inactiveLogoutTimer ??= new Timer(CheckForInactiveLogout, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
 
             if (_config.Configuration.InactiveSessionThreshold > 0)
             {
@@ -612,6 +615,15 @@ namespace Emby.Server.Implementations.Session
             else
             {
                 StopInactiveCheckTimer();
+            }
+        }
+
+        private void StopInactiveLogoutCheckTimer()
+        {
+            if (_inactiveLogoutTimer is not null)
+            {
+                _inactiveLogoutTimer.Dispose();
+                _inactiveLogoutTimer = null;
             }
         }
 
@@ -705,6 +717,67 @@ namespace Emby.Server.Implementations.Session
             if (!playingSessions)
             {
                 StopInactiveCheckTimer();
+            }
+        }
+
+        private async void CheckForInactiveLogout(object state)
+        {
+            var now = DateTime.UtcNow;
+            var sessionsWithLogoutPolicy = Sessions
+                .Where(i => !i.UserId.IsEmpty())
+                .Select(i => new
+                {
+                    Session = i,
+                    User = _userManager.GetUserById(i.UserId)
+                })
+                .Where(i => i.User is not null && i.User.GetInactiveLogoutMinutes() > 0)
+                .ToList();
+
+            foreach (var item in sessionsWithLogoutPolicy)
+            {
+                var session = item.Session;
+
+                if (session.NowPlayingItem is not null && !session.PlayState.IsPaused)
+                {
+                    continue;
+                }
+
+                var inactiveSince = session.LastPausedDate ?? session.LastActivityDate;
+                var inactiveMinutes = (now - inactiveSince).TotalMinutes;
+                var timeoutMinutes = item.User.GetInactiveLogoutMinutes();
+                if (inactiveMinutes < timeoutMinutes)
+                {
+                    continue;
+                }
+
+                _logger.LogInformation(
+                    "Logging out session {SessionId} for user {UserId} after {InactiveMinutes:N1} inactive minutes.",
+                    session.Id,
+                    session.UserId,
+                    inactiveMinutes);
+
+                var devices = _deviceManager.GetDevices(new DeviceQuery
+                {
+                    DeviceId = session.DeviceId,
+                    UserId = session.UserId
+                });
+
+                foreach (var device in devices.Items)
+                {
+                    try
+                    {
+                        await Logout(device).ConfigureAwait(false);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Error logging out inactive session {SessionId}.", session.Id);
+                    }
+                }
+            }
+
+            if (sessionsWithLogoutPolicy.Count == 0)
+            {
+                StopInactiveLogoutCheckTimer();
             }
         }
 
@@ -1659,6 +1732,7 @@ namespace Emby.Server.Implementations.Session
                     request.Username,
                     request.Password,
                     request.RemoteEndPoint,
+                    request.GetAuthFailureSource(),
                     true).ConfigureAwait(false);
             }
 
@@ -1672,6 +1746,48 @@ namespace Emby.Server.Implementations.Session
                 && !_deviceManager.CanAccessDevice(user, request.DeviceId))
             {
                 throw new SecurityException("User is not allowed access from this device.");
+            }
+
+            var requiresTwoFactorSetup = false;
+            if (enforcePassword)
+            {
+                var twoFactorPolicy = user.GetTwoFactorAuthenticationPolicy();
+                var twoFactorEnabled = user.IsTwoFactorAuthenticationEnabled();
+                if (twoFactorPolicy == TwoFactorAuthenticationPolicy.Required && !twoFactorEnabled)
+                {
+                    requiresTwoFactorSetup = true;
+                }
+
+                if (twoFactorEnabled)
+                {
+                    var twoFactorSecret = user.GetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationSecret);
+                    if (!TotpHelper.VerifyCode(twoFactorSecret ?? string.Empty, request.TwoFactorCode, DateTimeOffset.UtcNow))
+                    {
+                        if (!string.IsNullOrWhiteSpace(request.TwoFactorCode))
+                        {
+                            user.SetTwoFactorAuthenticationFailedAttemptCount(user.GetTwoFactorAuthenticationFailedAttemptCount() + 1);
+                            await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+                        }
+
+                        _logger.LogWarning(
+                            "Two-factor authentication failed for user {User} from {Source}.",
+                            user.Username,
+                            request.GetAuthFailureSource());
+
+                        return new AuthenticationResult
+                        {
+                            User = _userManager.GetUserDto(user, request.RemoteEndPoint),
+                            RequiresTwoFactorAuthentication = true,
+                            ServerId = _appHost.SystemId
+                        };
+                    }
+
+                    if (user.GetTwoFactorAuthenticationFailedAttemptCount() != 0)
+                    {
+                        user.SetTwoFactorAuthenticationFailedAttemptCount(0);
+                        await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+                    }
+                }
             }
 
             int sessionsCount = Sessions.Count(i => i.UserId.Equals(user.Id));
@@ -1697,7 +1813,8 @@ namespace Emby.Server.Implementations.Session
                 User = _userManager.GetUserDto(user, request.RemoteEndPoint),
                 SessionInfo = ToSessionInfoDto(session),
                 AccessToken = token,
-                ServerId = _appHost.SystemId
+                ServerId = _appHost.SystemId,
+                RequiresTwoFactorSetup = requiresTwoFactorSetup
             };
 
             await _eventManager.PublishAsync(new AuthenticationResultEventArgs(returnResult)).ConfigureAwait(false);
@@ -2161,6 +2278,12 @@ namespace Emby.Server.Implementations.Session
             {
                 await _inactiveTimer.DisposeAsync().ConfigureAwait(false);
                 _inactiveTimer = null;
+            }
+
+            if (_inactiveLogoutTimer is not null)
+            {
+                await _inactiveLogoutTimer.DisposeAsync().ConfigureAwait(false);
+                _inactiveLogoutTimer = null;
             }
 
             await _shutdownCallback.DisposeAsync().ConfigureAwait(false);

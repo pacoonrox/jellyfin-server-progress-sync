@@ -68,5 +68,40 @@ public enum PreferenceKind
     /// <summary>
     /// A list of allowed tags.
     /// </summary>
-    AllowedTags = 12
+    AllowedTags = 12,
+
+    /// <summary>
+    /// The user's two-factor authentication policy.
+    /// </summary>
+    TwoFactorAuthenticationPolicy = 13,
+
+    /// <summary>
+    /// The user's active two-factor authentication secret.
+    /// </summary>
+    TwoFactorAuthenticationSecret = 14,
+
+    /// <summary>
+    /// The user's pending two-factor authentication setup secret.
+    /// </summary>
+    TwoFactorAuthenticationPendingSecret = 15,
+
+    /// <summary>
+    /// Whether two-factor authentication has been registered by the user.
+    /// </summary>
+    TwoFactorAuthenticationEnabled = 16,
+
+    /// <summary>
+    /// The user's two-factor authentication registration timestamp.
+    /// </summary>
+    TwoFactorAuthenticationRegisteredDate = 17,
+
+    /// <summary>
+    /// Failed two-factor authentication attempts for the user.
+    /// </summary>
+    TwoFactorAuthenticationFailedAttemptCount = 18,
+
+    /// <summary>
+    /// The user's automatic logout timeout in inactive minutes.
+    /// </summary>
+    InactiveLogoutMinutes = 19
 }
