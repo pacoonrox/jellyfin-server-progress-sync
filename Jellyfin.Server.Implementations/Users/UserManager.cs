@@ -331,6 +331,7 @@ namespace Jellyfin.Server.Implementations.Users
 
             user.AddDefaultPermissions();
             user.AddDefaultPreferences();
+            user.SetTwoFactorAuthenticationPolicy(TwoFactorAuthenticationPolicy.Allowed);
 
             return user;
         }
