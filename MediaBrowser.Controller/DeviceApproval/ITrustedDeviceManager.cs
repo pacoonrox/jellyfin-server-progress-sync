@@ -18,6 +18,7 @@ public interface ITrustedDeviceManager
     Task UpdateAsync(long id, string? friendlyName, DateTime? expiresUtc, Guid actorUserId);
     Task TrustObservedAsync(long id, string? friendlyName, DateTime expiresUtc, Guid actorUserId);
     Task RevokeAsync(long id, Guid actorUserId);
+    Task PruneAsync(long id, Guid actorUserId);
     Task RevokeUserAsync(Guid userId, Guid? actorUserId, string source);
     Task RevokeAllAsync(Guid actorUserId, string source);
     Task RequireFreshTwoFactorAsync(Guid userId, string installationId);

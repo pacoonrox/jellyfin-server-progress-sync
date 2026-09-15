@@ -119,6 +119,10 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     [Authorize(Roles = UserRoles.Administrator)]
     public async Task<ActionResult> Revoke([FromRoute] long id) { await _trust.RevokeAsync(id, User.GetUserId()).ConfigureAwait(false); return NoContent(); }
 
+    [HttpDelete("Admin/TrustedDevices/{id:long}/Prune")]
+    [Authorize(Roles = UserRoles.Administrator)]
+    public async Task<ActionResult> Prune([FromRoute] long id) { await _trust.PruneAsync(id, User.GetUserId()).ConfigureAwait(false); return NoContent(); }
+
     [HttpDelete("Admin/Users/{userId:guid}/TrustedDevices")]
     [Authorize(Roles = UserRoles.Administrator)]
     public async Task<ActionResult> RevokeUser([FromRoute] Guid userId) { await _trust.RevokeUserAsync(userId, User.GetUserId(), "Administrator").ConfigureAwait(false); return NoContent(); }

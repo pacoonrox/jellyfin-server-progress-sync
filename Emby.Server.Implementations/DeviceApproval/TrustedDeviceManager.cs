@@ -215,6 +215,15 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
+    public async Task PruneAsync(long id, Guid actorUserId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var record = await db.TrustedDevices.FindAsync(id).ConfigureAwait(false) ?? throw new ResourceNotFoundException("Trusted device not found");
+        db.TrustedDevices.Remove(record);
+        db.SecurityAuditRecords.Add(NewAudit("TrustedDevicePruned", "Administrator", "Success", actorUserId, record.UserId, record.Id, true));
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
     public async Task TrustObservedAsync(long id, string? friendlyName, DateTime expiresUtc, Guid actorUserId)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
