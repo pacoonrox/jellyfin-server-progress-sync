@@ -38,7 +38,7 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
 
     public bool IsEnabled => _configuration.Configuration.DeviceApprovalAvailable;
 
-    public async Task<DeviceApprovalRequestDto> InitiateAsync(AuthorizationInfo client, DeviceApprovalInitiateRequest request, string ipAddress)
+    public async Task<DeviceApprovalRequestDto> InitiateAsync(AuthorizationInfo client, DeviceApprovalInitiateRequest request, string ipAddress, string connectionDomain)
     {
         AssertEnabled();
         ArgumentException.ThrowIfNullOrEmpty(client.DeviceId);
@@ -55,7 +55,7 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
             var id = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
             var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
             var now = _time.GetUtcNow().UtcDateTime;
-            pending = new Pending { Id = id, Secret = secret, DeviceCredential = request.DeviceCredential, InstallationId = client.DeviceId, DeviceName = client.Device, AppName = client.Client, AppVersion = client.Version, Platform = request.Platform, OsVersion = request.OsVersion, IpAddress = ipAddress, CreatedUtc = now, ExpiresUtc = now.AddMinutes(5) };
+            pending = new Pending { Id = id, Secret = secret, DeviceCredential = request.DeviceCredential, InstallationId = client.DeviceId, DeviceName = client.Device, AppName = client.Client, AppVersion = client.Version, Platform = request.Platform, OsVersion = request.OsVersion, ConnectionDomain = connectionDomain, IpAddress = ipAddress, CreatedUtc = now, ExpiresUtc = now.AddMinutes(5) };
             _requests[id] = pending; _secretIndex[secret] = id;
         }
         finally { _gate.Release(); }
@@ -209,10 +209,10 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
         }
     }
     private static string GenerateMatchingValue() => $"{Words[RandomNumberGenerator.GetInt32(Words.Length)]}-{Words[RandomNumberGenerator.GetInt32(Words.Length)]}-{Words[RandomNumberGenerator.GetInt32(Words.Length)]}-{RandomNumberGenerator.GetInt32(100, 1000)}".ToUpperInvariant();
-    private static DeviceApprovalRequestDto ToDto(Pending x, bool includeIp, bool requester, bool includeMatch = true) => new() { Id = x.Id, RequestSecret = requester ? x.Secret : null, DeviceName = x.DeviceName, AppName = x.AppName, AppVersion = x.AppVersion, Platform = x.Platform, OsVersion = x.OsVersion, RequestingIpAddress = includeIp ? x.IpAddress : null, CreatedUtc = x.CreatedUtc, ExpiresUtc = x.ExpiresUtc, State = x.State, MatchingValue = x.State == DeviceApprovalState.Selected && includeMatch ? x.MatchingValue : null };
+    private static DeviceApprovalRequestDto ToDto(Pending x, bool includeIp, bool requester, bool includeMatch = true) => new() { Id = x.Id, RequestSecret = requester ? x.Secret : null, DeviceName = x.DeviceName, AppName = x.AppName, AppVersion = x.AppVersion, Platform = x.Platform, OsVersion = x.OsVersion, ConnectionDomain = x.ConnectionDomain, RequestingIpAddress = includeIp ? x.IpAddress : null, CreatedUtc = x.CreatedUtc, ExpiresUtc = x.ExpiresUtc, State = x.State, MatchingValue = x.State == DeviceApprovalState.Selected && includeMatch ? x.MatchingValue : null };
 
     private sealed class Pending
     {
-        public string Id = string.Empty; public string Secret = string.Empty; public string DeviceCredential = string.Empty; public string InstallationId = string.Empty; public string DeviceName = string.Empty; public string AppName = string.Empty; public string AppVersion = string.Empty; public string Platform = string.Empty; public string OsVersion = string.Empty; public string IpAddress = string.Empty; public DateTime CreatedUtc; public DateTime ExpiresUtc; public DeviceApprovalState State; public Guid? SelectedBy; public DateTime? SelectedUtc; public string? MatchingValue; public AuthenticationResult? Result;
+        public string Id = string.Empty; public string Secret = string.Empty; public string DeviceCredential = string.Empty; public string InstallationId = string.Empty; public string DeviceName = string.Empty; public string AppName = string.Empty; public string AppVersion = string.Empty; public string Platform = string.Empty; public string OsVersion = string.Empty; public string ConnectionDomain = string.Empty; public string IpAddress = string.Empty; public DateTime CreatedUtc; public DateTime ExpiresUtc; public DeviceApprovalState State; public Guid? SelectedBy; public DateTime? SelectedUtc; public string? MatchingValue; public AuthenticationResult? Result;
     }
 }

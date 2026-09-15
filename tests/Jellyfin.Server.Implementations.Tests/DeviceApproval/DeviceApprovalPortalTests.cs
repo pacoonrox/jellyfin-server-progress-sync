@@ -37,16 +37,17 @@ public sealed class DeviceApprovalPortalTests
     [Fact]
     public async Task Queue_RedactsIpForRegularUsers()
     {
-        await _subject.InitiateAsync(_client, Request(), "192.0.2.10");
+        await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
 
         Assert.Null(Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).RequestingIpAddress);
         Assert.Equal("192.0.2.10", Assert.Single(_subject.GetQueue(true, Guid.NewGuid())).RequestingIpAddress);
+        Assert.Equal("jellyfin.example.test", Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).ConnectionDomain);
     }
 
     [Fact]
     public async Task ConcurrentSelection_HasExactlyOneWinner()
     {
-        await _subject.InitiateAsync(_client, Request(), "192.0.2.10");
+        await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
         var id = Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).Id;
 
         var attempts = new[]
@@ -62,7 +63,7 @@ public sealed class DeviceApprovalPortalTests
     public async Task PortalProvenance_CannotSelectAnotherDevice()
     {
         _trust.Setup(x => x.CanApproveAsync("portal-token")).ReturnsAsync(false);
-        await _subject.InitiateAsync(_client, Request(), "192.0.2.10");
+        await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
         var id = Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).Id;
 
         await Assert.ThrowsAsync<AuthenticationException>(() => _subject.SelectAsync(id, Guid.NewGuid(), "portal-token"));
@@ -71,7 +72,7 @@ public sealed class DeviceApprovalPortalTests
     [Fact]
     public async Task Selection_UsesUnpredictableMatchingValueAndNoReturnsToQueue()
     {
-        await _subject.InitiateAsync(_client, Request(), "192.0.2.10");
+        await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
         var actor = Guid.NewGuid();
         var id = Assert.Single(_subject.GetQueue(false, actor)).Id;
         var selected = await _subject.SelectAsync(id, actor, "direct");
@@ -84,7 +85,7 @@ public sealed class DeviceApprovalPortalTests
     [Fact]
     public async Task ExpiredRequest_CannotBeSelected()
     {
-        await _subject.InitiateAsync(_client, Request(), "192.0.2.10");
+        await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
         var id = Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).Id;
         _time.Advance(TimeSpan.FromMinutes(5));
 
@@ -95,7 +96,7 @@ public sealed class DeviceApprovalPortalTests
     [Fact]
     public async Task CanceledRequestSecret_CannotBeReplayed()
     {
-        var request = await _subject.InitiateAsync(_client, Request(), "192.0.2.10");
+        var request = await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
         await _subject.CancelAsync(request.RequestSecret!);
 
         Assert.Throws<ResourceNotFoundException>(() => _subject.GetStatus(request.RequestSecret!));

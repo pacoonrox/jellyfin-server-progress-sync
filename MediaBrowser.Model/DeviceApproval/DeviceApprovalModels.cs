@@ -23,6 +23,7 @@ public sealed class DeviceApprovalRequestDto
     public string AppVersion { get; set; } = string.Empty;
     public string Platform { get; set; } = string.Empty;
     public string OsVersion { get; set; } = string.Empty;
+    public string ConnectionDomain { get; set; } = string.Empty;
     public string? RequestingIpAddress { get; set; }
     public DateTime CreatedUtc { get; set; }
     public DateTime ExpiresUtc { get; set; }

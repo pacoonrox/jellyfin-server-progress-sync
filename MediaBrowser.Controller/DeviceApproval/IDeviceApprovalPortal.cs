@@ -12,7 +12,7 @@ namespace MediaBrowser.Controller.DeviceApproval;
 public interface IDeviceApprovalPortal
 {
     bool IsEnabled { get; }
-    Task<DeviceApprovalRequestDto> InitiateAsync(AuthorizationInfo client, DeviceApprovalInitiateRequest request, string ipAddress);
+    Task<DeviceApprovalRequestDto> InitiateAsync(AuthorizationInfo client, DeviceApprovalInitiateRequest request, string ipAddress, string connectionDomain);
     DeviceApprovalRequestDto GetStatus(string requestSecret);
     IReadOnlyList<DeviceApprovalRequestDto> GetQueue(bool includeIpAddress, Guid viewingUserId);
     Task<DeviceApprovalRequestDto> SelectAsync(string requestId, Guid actorUserId, string actorAccessToken);

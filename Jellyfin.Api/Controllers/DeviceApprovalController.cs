@@ -40,7 +40,7 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
 
     [HttpPost("Requests")]
     public async Task<ActionResult<DeviceApprovalRequestDto>> Initiate([FromBody, Required] DeviceApprovalInitiateRequest request)
-        => await _portal.InitiateAsync(await _authorization.GetAuthorizationInfo(Request).ConfigureAwait(false), request, HttpContext.GetNormalizedRemoteIP().ToString()).ConfigureAwait(false);
+        => await _portal.InitiateAsync(await _authorization.GetAuthorizationInfo(Request).ConfigureAwait(false), request, HttpContext.GetNormalizedRemoteIP().ToString(), GetConnectionDomain(Request)).ConfigureAwait(false);
 
     [HttpGet("Requests/Status")]
     public ActionResult<DeviceApprovalRequestDto> Status([FromQuery, Required] string secret) => _portal.GetStatus(secret);
@@ -123,4 +123,19 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     [HttpDelete("Admin/TrustedDevices")]
     [Authorize(Roles = UserRoles.Administrator)]
     public async Task<ActionResult> RevokeAll() { await _trust.RevokeAllAsync(User.GetUserId(), "Administrator").ConfigureAwait(false); return NoContent(); }
+
+    private static string GetConnectionDomain(HttpRequest request)
+    {
+        var candidate = request.Headers["X-Forwarded-Host"].FirstOrDefault()
+            ?? request.Headers["X-Original-Host"].FirstOrDefault()
+            ?? request.Host.ToString();
+        candidate = candidate.Split(',', StringSplitOptions.RemoveEmptyEntries)[0].Trim();
+
+        if (Uri.TryCreate($"https://{candidate}", UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
+        {
+            return uri.Host;
+        }
+
+        return request.Host.Host;
+    }
 }
