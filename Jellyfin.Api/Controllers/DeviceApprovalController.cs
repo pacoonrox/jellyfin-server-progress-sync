@@ -7,10 +7,10 @@ using Jellyfin.Api.Constants;
 using Jellyfin.Api.Extensions;
 using Jellyfin.Api.Helpers;
 using MediaBrowser.Common.Extensions;
+using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.DeviceApproval;
 using MediaBrowser.Controller.Net;
-using MediaBrowser.Common.Net;
 using MediaBrowser.Model.DeviceApproval;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -18,7 +18,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Jellyfin.Api.Controllers;
 
-#pragma warning disable CS1591, SA1107, SA1201, SA1210, SA1516
+#pragma warning disable CS1591, SA1107, SA1201, SA1210, SA1502, SA1503, SA1516
 
 /// <summary>Shared queue and administrator-only trusted-device operations.</summary>
 [Route("DeviceApproval")]

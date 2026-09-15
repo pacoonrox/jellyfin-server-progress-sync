@@ -15,7 +15,7 @@ using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.DeviceApproval;
 
-#pragma warning disable CS1591, CA1001, SA1201, SA1306, SA1401, SA1501, SA1503, SA1513
+#pragma warning disable CS1591, CA1001, SA1107, SA1201, SA1306, SA1401, SA1501, SA1502, SA1503, SA1513, SA1516
 
 namespace Emby.Server.Implementations.DeviceApproval;
 

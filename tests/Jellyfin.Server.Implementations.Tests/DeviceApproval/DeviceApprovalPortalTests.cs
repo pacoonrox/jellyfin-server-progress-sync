@@ -14,6 +14,8 @@ using MediaBrowser.Model.DeviceApproval;
 using Moq;
 using Xunit;
 
+#pragma warning disable SA1501, SA1107
+
 namespace Jellyfin.Server.Implementations.Tests.DeviceApproval;
 
 public sealed class DeviceApprovalPortalTests

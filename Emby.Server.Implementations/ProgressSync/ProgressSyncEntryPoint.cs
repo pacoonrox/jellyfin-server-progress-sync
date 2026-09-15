@@ -16,6 +16,8 @@ public sealed class ProgressSyncEntryPoint : IHostedService
     /// <summary>
     /// Initializes a new instance of the <see cref="ProgressSyncEntryPoint"/> class.
     /// </summary>
+    /// <param name="userDataManager">The user data manager.</param>
+    /// <param name="progressSyncManager">The progress sync manager.</param>
     public ProgressSyncEntryPoint(IUserDataManager userDataManager, ProgressSyncManager progressSyncManager)
     {
         _userDataManager = userDataManager;

@@ -33,6 +33,11 @@ public sealed class ProgressSyncManager : IProgressSyncManager
     /// <summary>
     /// Initializes a new instance of the <see cref="ProgressSyncManager"/> class.
     /// </summary>
+    /// <param name="configurationManager">The server configuration manager.</param>
+    /// <param name="userManager">The user manager.</param>
+    /// <param name="userDataManager">The user data manager.</param>
+    /// <param name="libraryManager">The library manager.</param>
+    /// <param name="logger">The logger.</param>
     public ProgressSyncManager(
         IServerConfigurationManager configurationManager,
         IUserManager userManager,
@@ -45,6 +50,17 @@ public sealed class ProgressSyncManager : IProgressSyncManager
         _libraryManager = libraryManager;
         _logger = logger;
         _path = Path.Combine(configurationManager.ApplicationPaths.ConfigurationDirectoryPath, "progresssync.json");
+    }
+
+    private ProgressSyncConfiguration Configuration
+    {
+        get
+        {
+            lock (_syncLock)
+            {
+                return _configuration ??= LoadConfiguration();
+            }
+        }
     }
 
     /// <inheritdoc />
@@ -98,6 +114,7 @@ public sealed class ProgressSyncManager : IProgressSyncManager
     /// <summary>
     /// Propagates a saved user data change to other synced users.
     /// </summary>
+    /// <param name="e">The user data event.</param>
     public void HandleUserDataSaved(UserDataSaveEventArgs e)
     {
         if (_isPropagating > 0 || e.Item is not Episode episode || episode.SeriesId.Equals(Guid.Empty))
@@ -205,17 +222,6 @@ public sealed class ProgressSyncManager : IProgressSyncManager
         copy.Played = source.Played;
 
         _userDataManager.SaveUserData(targetUser, item, copy, reason, default);
-    }
-
-    private ProgressSyncConfiguration Configuration
-    {
-        get
-        {
-            lock (_syncLock)
-            {
-                return _configuration ??= LoadConfiguration();
-            }
-        }
     }
 
     private ProgressSyncConfiguration LoadConfiguration()
