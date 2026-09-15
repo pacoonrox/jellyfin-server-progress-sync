@@ -265,6 +265,11 @@ namespace MediaBrowser.Controller.Session
 
         Task<AuthenticationResult> AuthenticateDirect(AuthenticationRequest request);
 
+        /// <summary>Creates a session after an atomic shared-portal approval.</summary>
+        /// <param name="request">The server-validated requesting installation and target user.</param>
+        /// <returns>The newly authenticated portal session.</returns>
+        Task<AuthenticationResult> AuthenticatePortalSession(AuthenticationRequest request);
+
         /// <summary>
         /// Reports the capabilities.
         /// </summary>

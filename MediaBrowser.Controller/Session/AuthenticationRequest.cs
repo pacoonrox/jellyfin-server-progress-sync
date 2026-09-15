@@ -17,6 +17,14 @@ namespace MediaBrowser.Controller.Session
 
         public string TwoFactorCode { get; set; }
 
+        public string DeviceCredential { get; set; }
+
+        public bool TrustDevice { get; set; }
+
+        public string Platform { get; set; }
+
+        public string OsVersion { get; set; }
+
         [Obsolete("Send full password in Password field")]
         public string PasswordSha1 { get; set; }
 

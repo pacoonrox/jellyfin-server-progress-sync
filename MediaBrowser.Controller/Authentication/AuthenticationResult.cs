@@ -38,4 +38,10 @@ public class AuthenticationResult
     /// Gets or sets a value indicating whether two-factor authentication setup is required before a session token can be issued.
     /// </summary>
     public bool RequiresTwoFactorSetup { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether this direct 2FA attempt may issue device trust.</summary>
+    public bool CanTrustDevice { get; set; }
+
+    /// <summary>Gets or sets the configured default trust duration shown to the client.</summary>
+    public int TrustedDeviceDefaultDays { get; set; }
 }

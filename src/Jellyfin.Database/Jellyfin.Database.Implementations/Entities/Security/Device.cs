@@ -99,6 +99,13 @@ namespace Jellyfin.Database.Implementations.Entities.Security
         /// </summary>
         public DateTime DateLastActivity { get; set; }
 
+        /// <summary>Gets or sets how the current token was authenticated.</summary>
+        [MaxLength(32)]
+        public string AuthenticationProvenance { get; set; } = "Legacy";
+
+        /// <summary>Gets or sets when this token last completed direct TOTP verification.</summary>
+        public DateTime? DirectTwoFactorVerifiedUtc { get; set; }
+
         /// <summary>
         /// Gets the user.
         /// </summary>

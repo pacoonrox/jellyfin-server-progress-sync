@@ -1182,6 +1182,11 @@ namespace Jellyfin.Server.Implementations.Migrations
                         .HasMaxLength(32)
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("AuthenticationProvenance")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
                     b.Property<DateTime>("DateCreated")
                         .HasColumnType("TEXT");
 
@@ -1201,6 +1206,9 @@ namespace Jellyfin.Server.Implementations.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("TEXT");
 
+                    b.Property<DateTime?>("DirectTwoFactorVerifiedUtc")
+                        .HasColumnType("TEXT");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("INTEGER");
 
@@ -1217,6 +1225,52 @@ namespace Jellyfin.Server.Implementations.Migrations
 
                     b.ToTable("Devices");
 
+                    b.HasAnnotation("Sqlite:UseSqlReturningClause", false);
+                });
+
+            modelBuilder.Entity("Jellyfin.Database.Implementations.Entities.Security.SecurityAuditRecord", b =>
+                {
+                    b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("INTEGER");
+                    b.Property<Guid?>("ActingUserId").HasColumnType("TEXT");
+                    b.Property<bool>("AdministratorInvolved").HasColumnType("INTEGER");
+                    b.Property<string>("Detail").IsRequired().HasMaxLength(512).HasColumnType("TEXT");
+                    b.Property<string>("Event").IsRequired().HasMaxLength(48).HasColumnType("TEXT");
+                    b.Property<string>("Result").IsRequired().HasMaxLength(32).HasColumnType("TEXT");
+                    b.Property<string>("Source").IsRequired().HasMaxLength(32).HasColumnType("TEXT");
+                    b.Property<Guid?>("TargetUserId").HasColumnType("TEXT");
+                    b.Property<DateTime>("TimestampUtc").HasColumnType("TEXT");
+                    b.Property<long?>("TrustedDeviceId").HasColumnType("INTEGER");
+                    b.HasKey("Id");
+                    b.HasIndex("TimestampUtc");
+                    b.ToTable("SecurityAuditRecords");
+                    b.HasAnnotation("Sqlite:UseSqlReturningClause", false);
+                });
+
+            modelBuilder.Entity("Jellyfin.Database.Implementations.Entities.Security.TrustedDevice", b =>
+                {
+                    b.Property<long>("Id").ValueGeneratedOnAdd().HasColumnType("INTEGER");
+                    b.Property<string>("AppName").IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+                    b.Property<string>("AppVersion").IsRequired().HasMaxLength(32).HasColumnType("TEXT");
+                    b.Property<string>("CredentialHash").IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+                    b.Property<DateTime?>("ExpiresUtc").HasColumnType("TEXT");
+                    b.Property<DateTime>("FirstSeenUtc").HasColumnType("TEXT");
+                    b.Property<string>("FriendlyName").IsRequired().HasMaxLength(128).HasColumnType("TEXT");
+                    b.Property<string>("InstallationId").IsRequired().HasMaxLength(256).HasColumnType("TEXT");
+                    b.Property<DateTime?>("IssuedUtc").HasColumnType("TEXT");
+                    b.Property<string>("LastIpAddress").IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+                    b.Property<DateTime>("LastSeenUtc").HasColumnType("TEXT");
+                    b.Property<string>("OsVersion").IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+                    b.Property<string>("Platform").IsRequired().HasMaxLength(64).HasColumnType("TEXT");
+                    b.Property<DateTime?>("RevokedUtc").HasColumnType("TEXT");
+                    b.Property<bool>("RequiresFreshTwoFactor").HasColumnType("INTEGER");
+                    b.Property<string>("Source").IsRequired().HasMaxLength(32).HasColumnType("TEXT");
+                    b.Property<string>("State").IsRequired().HasMaxLength(32).HasColumnType("TEXT");
+                    b.Property<Guid>("UserId").HasColumnType("TEXT");
+                    b.HasKey("Id");
+                    b.HasIndex("ExpiresUtc");
+                    b.HasIndex("UserId", "CredentialHash").IsUnique();
+                    b.HasIndex("UserId", "InstallationId");
+                    b.ToTable("TrustedDevices");
                     b.HasAnnotation("Sqlite:UseSqlReturningClause", false);
                 });
 

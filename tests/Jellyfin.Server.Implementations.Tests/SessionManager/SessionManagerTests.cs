@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.DeviceApproval;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Dto;
@@ -35,6 +36,7 @@ public class SessionManagerTests
             Mock.Of<IImageProcessor>(),
             Mock.Of<IServerApplicationHost>(),
             Mock.Of<IDeviceManager>(),
+            Mock.Of<ITrustedDeviceManager>(),
             Mock.Of<IMediaSourceManager>(),
             Mock.Of<IHostApplicationLifetime>());
 
@@ -62,6 +64,7 @@ public class SessionManagerTests
             Mock.Of<IImageProcessor>(),
             Mock.Of<IServerApplicationHost>(),
             Mock.Of<IDeviceManager>(),
+            Mock.Of<ITrustedDeviceManager>(),
             Mock.Of<IMediaSourceManager>(),
             Mock.Of<IHostApplicationLifetime>());
 

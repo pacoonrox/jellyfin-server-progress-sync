@@ -43,6 +43,12 @@ public class JellyfinDbContext(DbContextOptions<JellyfinDbContext> options, ILog
     /// </summary>
     public DbSet<Device> Devices => Set<Device>();
 
+    /// <summary>Gets user-scoped trusted installation records.</summary>
+    public DbSet<TrustedDevice> TrustedDevices => Set<TrustedDevice>();
+
+    /// <summary>Gets device approval and trust audit records.</summary>
+    public DbSet<SecurityAuditRecord> SecurityAuditRecords => Set<SecurityAuditRecord>();
+
     /// <summary>
     /// Gets the <see cref="DbSet{TEntity}"/> containing the device options.
     /// </summary>

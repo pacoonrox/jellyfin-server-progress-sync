@@ -12,7 +12,6 @@ using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Playlists;
-using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Users;
 using Microsoft.AspNetCore.Mvc;
@@ -33,7 +32,6 @@ public class UserControllerTests
     private readonly Mock<IAuthorizationContext> _mockAuthorizationContext;
     private readonly Mock<IServerConfigurationManager> _mockServerConfigurationManager;
     private readonly Mock<ILogger<UserController>> _mockLogger;
-    private readonly Mock<IQuickConnect> _mockQuickConnect;
     private readonly Mock<IPlaylistManager> _mockPlaylistManager;
 
     public UserControllerTests()
@@ -45,7 +43,6 @@ public class UserControllerTests
         _mockAuthorizationContext = new Mock<IAuthorizationContext>();
         _mockServerConfigurationManager = new Mock<IServerConfigurationManager>();
         _mockLogger = new Mock<ILogger<UserController>>();
-        _mockQuickConnect = new Mock<IQuickConnect>();
         _mockPlaylistManager = new Mock<IPlaylistManager>();
 
         _subject = new UserController(
@@ -56,7 +53,6 @@ public class UserControllerTests
             _mockAuthorizationContext.Object,
             _mockServerConfigurationManager.Object,
             _mockLogger.Object,
-            _mockQuickConnect.Object,
             _mockPlaylistManager.Object);
     }
 

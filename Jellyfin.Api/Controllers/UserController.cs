@@ -20,7 +20,6 @@ using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Playlists;
-using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
@@ -45,7 +44,6 @@ public class UserController : BaseJellyfinApiController
     private readonly IAuthorizationContext _authContext;
     private readonly IServerConfigurationManager _config;
     private readonly ILogger _logger;
-    private readonly IQuickConnect _quickConnectManager;
     private readonly IPlaylistManager _playlistManager;
 
     /// <summary>
@@ -58,7 +56,6 @@ public class UserController : BaseJellyfinApiController
     /// <param name="authContext">Instance of the <see cref="IAuthorizationContext"/> interface.</param>
     /// <param name="config">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger"/> interface.</param>
-    /// <param name="quickConnectManager">Instance of the <see cref="IQuickConnect"/> interface.</param>
     /// <param name="playlistManager">Instance of the <see cref="IPlaylistManager"/> interface.</param>
     public UserController(
         IUserManager userManager,
@@ -68,7 +65,6 @@ public class UserController : BaseJellyfinApiController
         IAuthorizationContext authContext,
         IServerConfigurationManager config,
         ILogger<UserController> logger,
-        IQuickConnect quickConnectManager,
         IPlaylistManager playlistManager)
     {
         _userManager = userManager;
@@ -78,7 +74,6 @@ public class UserController : BaseJellyfinApiController
         _authContext = authContext;
         _config = config;
         _logger = logger;
-        _quickConnectManager = quickConnectManager;
         _playlistManager = playlistManager;
     }
 
@@ -234,6 +229,10 @@ public class UserController : BaseJellyfinApiController
                 RemoteEndPoint = HttpContext.GetNormalizedRemoteIP().ToString(),
                 TrueClientIp = Request.Headers["True-Client-IP"].ToString(),
                 TwoFactorCode = request.TwoFactorCode,
+                DeviceCredential = request.DeviceCredential,
+                TrustDevice = request.TrustDevice,
+                Platform = request.Platform,
+                OsVersion = request.OsVersion,
                 UserAgent = Request.Headers.UserAgent.ToString(),
                 Username = request.Username
             }).ConfigureAwait(false);
@@ -259,15 +258,7 @@ public class UserController : BaseJellyfinApiController
     [Tags("Authentication")]
     public ActionResult<AuthenticationResult> AuthenticateWithQuickConnect([FromBody, Required] QuickConnectDto request)
     {
-        try
-        {
-            return _quickConnectManager.GetAuthorizedRequest(request.Secret);
-        }
-        catch (SecurityException e)
-        {
-            // rethrow adding IP address to message
-            throw new SecurityException($"[{HttpContext.GetNormalizedRemoteIP()}] {e.Message}", e);
-        }
+        return StatusCode(StatusCodes.Status410Gone, "Quick Connect was replaced by the shared device-approval portal; this client must be updated.");
     }
 
     /// <summary>

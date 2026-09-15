@@ -82,6 +82,15 @@ public class ServerConfiguration : BaseApplicationConfiguration
     /// </summary>
     public bool QuickConnectAvailable { get; set; } = true;
 
+    /// <summary>Gets or sets a value indicating whether the shared device-approval portal is available.</summary>
+    public bool DeviceApprovalAvailable { get; set; } = true;
+
+    /// <summary>Gets or sets a value indicating whether device approval and trusted devices are enabled.</summary>
+    public bool TrustedDevicesEnabled { get; set; } = true;
+
+    /// <summary>Gets or sets the default trusted-device lifetime in days.</summary>
+    public int TrustedDeviceDefaultDays { get; set; } = 30;
+
     /// <summary>
     /// Gets or sets a value indicating whether [enable case-sensitive item ids].
     /// </summary>

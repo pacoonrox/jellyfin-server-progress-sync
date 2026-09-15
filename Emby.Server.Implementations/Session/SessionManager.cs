@@ -22,6 +22,7 @@ using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Drawing;
+using MediaBrowser.Controller.DeviceApproval;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Events;
@@ -60,6 +61,7 @@ namespace Emby.Server.Implementations.Session
         private readonly IMediaSourceManager _mediaSourceManager;
         private readonly IServerApplicationHost _appHost;
         private readonly IDeviceManager _deviceManager;
+        private readonly ITrustedDeviceManager _trustedDeviceManager;
         private readonly CancellationTokenRegistration _shutdownCallback;
         private readonly ConcurrentDictionary<string, SessionInfo> _activeConnections
             = new(StringComparer.OrdinalIgnoreCase);
@@ -88,6 +90,7 @@ namespace Emby.Server.Implementations.Session
         /// <param name="imageProcessor">Instance of <see cref="IImageProcessor"/> interface.</param>
         /// <param name="appHost">Instance of <see cref="IServerApplicationHost"/> interface.</param>
         /// <param name="deviceManager">Instance of <see cref="IDeviceManager"/> interface.</param>
+        /// <param name="trustedDeviceManager">Trusted installation and authentication-provenance manager.</param>
         /// <param name="mediaSourceManager">Instance of <see cref="IMediaSourceManager"/> interface.</param>
         /// <param name="hostApplicationLifetime">Instance of <see cref="IHostApplicationLifetime"/> interface.</param>
         public SessionManager(
@@ -102,6 +105,7 @@ namespace Emby.Server.Implementations.Session
             IImageProcessor imageProcessor,
             IServerApplicationHost appHost,
             IDeviceManager deviceManager,
+            ITrustedDeviceManager trustedDeviceManager,
             IMediaSourceManager mediaSourceManager,
             IHostApplicationLifetime hostApplicationLifetime)
         {
@@ -116,6 +120,7 @@ namespace Emby.Server.Implementations.Session
             _imageProcessor = imageProcessor;
             _appHost = appHost;
             _deviceManager = deviceManager;
+            _trustedDeviceManager = trustedDeviceManager;
             _mediaSourceManager = mediaSourceManager;
             _shutdownCallback = hostApplicationLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
@@ -766,6 +771,7 @@ namespace Emby.Server.Implementations.Session
                 {
                     try
                     {
+                        await _trustedDeviceManager.RequireFreshTwoFactorAsync(session.UserId, device.DeviceId).ConfigureAwait(false);
                         await Logout(device).ConfigureAwait(false);
                     }
                     catch (Exception ex)
@@ -1709,6 +1715,14 @@ namespace Emby.Server.Implementations.Session
             return AuthenticateNewSessionInternal(request, false);
         }
 
+        /// <inheritdoc />
+        public async Task<AuthenticationResult> AuthenticatePortalSession(AuthenticationRequest request)
+        {
+            var result = await AuthenticateNewSessionInternal(request, false).ConfigureAwait(false);
+            await _trustedDeviceManager.SetSessionProvenanceAsync(result.AccessToken, "Portal", null).ConfigureAwait(false);
+            return result;
+        }
+
         internal async Task<AuthenticationResult> AuthenticateNewSessionInternal(AuthenticationRequest request, bool enforcePassword)
         {
             CheckDisposed();
@@ -1749,6 +1763,8 @@ namespace Emby.Server.Implementations.Session
             }
 
             var requiresTwoFactorSetup = false;
+            var usedTrustedDevice = false;
+            var completedDirectTwoFactor = false;
             if (enforcePassword)
             {
                 var twoFactorPolicy = user.GetTwoFactorAuthenticationPolicy();
@@ -1760,8 +1776,9 @@ namespace Emby.Server.Implementations.Session
 
                 if (twoFactorEnabled)
                 {
+                    usedTrustedDevice = await _trustedDeviceManager.ValidateAsync(user.Id, request.DeviceCredential, request.DeviceId, request.App, request.AppVersion, request.DeviceName, request.RemoteEndPoint).ConfigureAwait(false);
                     var twoFactorSecret = user.GetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationSecret);
-                    if (!TotpHelper.VerifyCode(twoFactorSecret ?? string.Empty, request.TwoFactorCode, DateTimeOffset.UtcNow))
+                    if (!usedTrustedDevice && !TotpHelper.VerifyCode(twoFactorSecret ?? string.Empty, request.TwoFactorCode, DateTimeOffset.UtcNow))
                     {
                         if (!string.IsNullOrWhiteSpace(request.TwoFactorCode))
                         {
@@ -1778,9 +1795,13 @@ namespace Emby.Server.Implementations.Session
                         {
                             User = _userManager.GetUserDto(user, request.RemoteEndPoint),
                             RequiresTwoFactorAuthentication = true,
+                            CanTrustDevice = _config.Configuration.TrustedDevicesEnabled && user.GetInactiveLogoutMinutes() == 0,
+                            TrustedDeviceDefaultDays = _config.Configuration.TrustedDeviceDefaultDays,
                             ServerId = _appHost.SystemId
                         };
                     }
+
+                    completedDirectTwoFactor = !usedTrustedDevice;
 
                     if (user.GetTwoFactorAuthenticationFailedAttemptCount() != 0)
                     {
@@ -1816,6 +1837,17 @@ namespace Emby.Server.Implementations.Session
                 ServerId = _appHost.SystemId,
                 RequiresTwoFactorSetup = requiresTwoFactorSetup
             };
+
+            if (enforcePassword)
+            {
+                var provenance = completedDirectTwoFactor ? "DirectTwoFactor" : usedTrustedDevice ? "TrustedDevice" : "DirectPassword";
+                await _trustedDeviceManager.SetSessionProvenanceAsync(token, provenance, completedDirectTwoFactor ? DateTime.UtcNow : null).ConfigureAwait(false);
+                await _trustedDeviceManager.ObserveAsync(user.Id, request.DeviceCredential, request.DeviceId, request.App, request.AppVersion, request.DeviceName, request.Platform, request.OsVersion, request.RemoteEndPoint, completedDirectTwoFactor).ConfigureAwait(false);
+                if (_config.Configuration.TrustedDevicesEnabled && request.TrustDevice && completedDirectTwoFactor && user.GetInactiveLogoutMinutes() == 0 && !string.IsNullOrWhiteSpace(request.DeviceCredential))
+                {
+                    await _trustedDeviceManager.IssueAsync(user.Id, request.DeviceCredential, request.DeviceId, "Direct", user.Id, user.HasPermission(PermissionKind.IsAdministrator)).ConfigureAwait(false);
+                }
+            }
 
             await _eventManager.PublishAsync(new AuthenticationResultEventArgs(returnResult)).ConfigureAwait(false);
             return returnResult;
@@ -1915,6 +1947,12 @@ namespace Emby.Server.Implementations.Session
                     await Logout(info).ConfigureAwait(false);
                 }
             }
+
+            // A user-wide forced logout is a security boundary, so previously issued
+            // 2FA-bypass credentials must not survive it. Per-token idle logout marks
+            // the installation for a fresh direct 2FA challenge while preserving the
+            // administrator's device designation.
+            await _trustedDeviceManager.RevokeUserAsync(userId, null, "ForcedLogout").ConfigureAwait(false);
         }
 
         /// <summary>

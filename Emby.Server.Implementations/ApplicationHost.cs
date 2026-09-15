@@ -32,7 +32,6 @@ using Emby.Server.Implementations.Localization;
 using Emby.Server.Implementations.Playlists;
 using Emby.Server.Implementations.Plugins;
 using Emby.Server.Implementations.ProgressSync;
-using Emby.Server.Implementations.QuickConnect;
 using Emby.Server.Implementations.ScheduledTasks;
 using Emby.Server.Implementations.Serialization;
 using Emby.Server.Implementations.Session;
@@ -78,7 +77,6 @@ using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Persistence;
 using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Controller.Providers;
-using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Resolvers;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.Sorting;
@@ -623,7 +621,9 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<IChapterManager, ChapterManager>();
 
             serviceCollection.AddSingleton<IAuthService, AuthService>();
-            serviceCollection.AddSingleton<IQuickConnect, QuickConnectManager>();
+            serviceCollection.AddSingleton<MediaBrowser.Controller.DeviceApproval.ITrustedDeviceManager, DeviceApproval.TrustedDeviceManager>();
+            serviceCollection.AddSingleton(TimeProvider.System);
+            serviceCollection.AddSingleton<MediaBrowser.Controller.DeviceApproval.IDeviceApprovalPortal, DeviceApproval.DeviceApprovalPortal>();
 
             serviceCollection.AddSingleton<ISubtitleParser, SubtitleEditParser>();
             serviceCollection.AddSingleton<ISubtitleEncoder, SubtitleEncoder>();

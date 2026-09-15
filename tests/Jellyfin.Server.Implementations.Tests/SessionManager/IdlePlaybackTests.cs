@@ -3,6 +3,7 @@ using System.Reflection;
 using System.Threading.Tasks;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.DeviceApproval;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Dto;
@@ -43,6 +44,7 @@ public class IdlePlaybackTests
             Mock.Of<IImageProcessor>(),
             Mock.Of<IServerApplicationHost>(),
             Mock.Of<IDeviceManager>(),
+            Mock.Of<ITrustedDeviceManager>(),
             Mock.Of<IMediaSourceManager>(),
             Mock.Of<IHostApplicationLifetime>());
         var session = await sessionManager.LogSessionActivity(
