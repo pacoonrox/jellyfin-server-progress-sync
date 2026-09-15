@@ -94,6 +94,15 @@ public sealed class DeviceApprovalPortalTests
     }
 
     [Fact]
+    public async Task DisconnectedRequest_IsRemovedAfterHeartbeatLease()
+    {
+        await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
+        _time.Advance(TimeSpan.FromSeconds(11));
+
+        Assert.Empty(_subject.GetQueue(false, Guid.NewGuid()));
+    }
+
+    [Fact]
     public async Task CanceledRequestSecret_CannotBeReplayed()
     {
         var request = await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");

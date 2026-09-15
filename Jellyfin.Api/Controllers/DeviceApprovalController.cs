@@ -48,6 +48,9 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     [HttpDelete("Requests")]
     public async Task<ActionResult> Cancel([FromQuery, Required] string secret) { await _portal.CancelAsync(secret).ConfigureAwait(false); return NoContent(); }
 
+    [HttpPost("Requests/Cancel")]
+    public async Task<ActionResult> CancelWithBeacon([FromQuery, Required] string secret) { await _portal.CancelAsync(secret).ConfigureAwait(false); return NoContent(); }
+
     [HttpGet("Queue")]
     [Authorize]
     public ActionResult<IReadOnlyList<DeviceApprovalRequestDto>> Queue()

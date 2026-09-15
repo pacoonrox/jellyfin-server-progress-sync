@@ -55,7 +55,7 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
             var id = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
             var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
             var now = _time.GetUtcNow().UtcDateTime;
-            pending = new Pending { Id = id, Secret = secret, DeviceCredential = request.DeviceCredential, InstallationId = client.DeviceId, DeviceName = client.Device, AppName = client.Client, AppVersion = client.Version, Platform = request.Platform, OsVersion = request.OsVersion, ConnectionDomain = connectionDomain, IpAddress = ipAddress, CreatedUtc = now, ExpiresUtc = now.AddMinutes(5) };
+            pending = new Pending { Id = id, Secret = secret, DeviceCredential = request.DeviceCredential, InstallationId = client.DeviceId, DeviceName = client.Device, AppName = client.Client, AppVersion = client.Version, Platform = request.Platform, OsVersion = request.OsVersion, ConnectionDomain = connectionDomain, IpAddress = ipAddress, CreatedUtc = now, LastSeenUtc = now, ExpiresUtc = now.AddMinutes(5) };
             _requests[id] = pending; _secretIndex[secret] = id;
         }
         finally { _gate.Release(); }
@@ -69,6 +69,7 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
         if (!_secretIndex.TryGetValue(requestSecret, out var id) || !_requests.TryGetValue(id, out var request)) throw new ResourceNotFoundException("Unknown or consumed request");
         lock (request)
         {
+            request.LastSeenUtc = _time.GetUtcNow().UtcDateTime;
             var dto = ToDto(request, false, true);
             if (request.State == DeviceApprovalState.Approved)
             {
@@ -202,10 +203,12 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
     private void AssertEnabled() { if (!IsEnabled) throw new AuthenticationException("Device approval is disabled"); }
     private void Expire()
     {
-        foreach (var pair in _requests.Where(x => x.Value.ExpiresUtc <= _time.GetUtcNow().UtcDateTime).ToArray())
+        var now = _time.GetUtcNow().UtcDateTime;
+        foreach (var pair in _requests.Where(x => x.Value.ExpiresUtc <= now || x.Value.LastSeenUtc.AddSeconds(10) <= now).ToArray())
         {
+            var disconnected = pair.Value.LastSeenUtc.AddSeconds(10) <= now && pair.Value.ExpiresUtc > now;
             pair.Value.State = DeviceApprovalState.Expired; _requests.TryRemove(pair.Key, out _); _secretIndex.TryRemove(pair.Value.Secret, out _);
-            _ = _trust.AuditAsync("PortalExpired", "Portal", "Success", null, null, null, false, $"Request {pair.Key}");
+            _ = _trust.AuditAsync(disconnected ? "PortalDisconnected" : "PortalExpired", "Portal", "Success", null, null, null, false, $"Request {pair.Key}");
         }
     }
     private static string GenerateMatchingValue() => $"{Words[RandomNumberGenerator.GetInt32(Words.Length)]}-{Words[RandomNumberGenerator.GetInt32(Words.Length)]}-{Words[RandomNumberGenerator.GetInt32(Words.Length)]}-{RandomNumberGenerator.GetInt32(100, 1000)}".ToUpperInvariant();
@@ -213,6 +216,6 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
 
     private sealed class Pending
     {
-        public string Id = string.Empty; public string Secret = string.Empty; public string DeviceCredential = string.Empty; public string InstallationId = string.Empty; public string DeviceName = string.Empty; public string AppName = string.Empty; public string AppVersion = string.Empty; public string Platform = string.Empty; public string OsVersion = string.Empty; public string ConnectionDomain = string.Empty; public string IpAddress = string.Empty; public DateTime CreatedUtc; public DateTime ExpiresUtc; public DeviceApprovalState State; public Guid? SelectedBy; public DateTime? SelectedUtc; public string? MatchingValue; public AuthenticationResult? Result;
+        public string Id = string.Empty; public string Secret = string.Empty; public string DeviceCredential = string.Empty; public string InstallationId = string.Empty; public string DeviceName = string.Empty; public string AppName = string.Empty; public string AppVersion = string.Empty; public string Platform = string.Empty; public string OsVersion = string.Empty; public string ConnectionDomain = string.Empty; public string IpAddress = string.Empty; public DateTime CreatedUtc; public DateTime LastSeenUtc; public DateTime ExpiresUtc; public DeviceApprovalState State; public Guid? SelectedBy; public DateTime? SelectedUtc; public string? MatchingValue; public AuthenticationResult? Result;
     }
 }
