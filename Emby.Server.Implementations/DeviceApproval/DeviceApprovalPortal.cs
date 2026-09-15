@@ -150,7 +150,11 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
             {
                 result = await _sessions.AuthenticatePortalSession(new AuthenticationRequest { UserId = actorUserId, DeviceId = request.InstallationId, DeviceName = request.DeviceName, App = request.AppName, AppVersion = request.AppVersion, RemoteEndPoint = request.IpAddress }).ConfigureAwait(false);
                 await _trust.ObserveAsync(actorUserId, request.DeviceCredential, request.InstallationId, request.AppName, request.AppVersion, request.DeviceName, request.Platform, request.OsVersion, request.IpAddress).ConfigureAwait(false);
-                if (_configuration.Configuration.TrustedDevicesEnabled && trustDevice && user.GetInactiveLogoutMinutes() == 0)
+                // A successful portal approval is an explicit authorization by
+                // the approving session. Automatically trust the requesting
+                // installation for the configured period when the account is
+                // eligible; automatic-logout accounts remain administrator-only.
+                if (_configuration.Configuration.TrustedDevicesEnabled && user.GetInactiveLogoutMinutes() == 0)
                 {
                     await _trust.IssueAsync(actorUserId, request.DeviceCredential, request.InstallationId, "Portal", actorUserId, user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator)).ConfigureAwait(false);
                 }

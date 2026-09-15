@@ -1843,7 +1843,7 @@ namespace Emby.Server.Implementations.Session
                 var provenance = completedDirectTwoFactor ? "DirectTwoFactor" : usedTrustedDevice ? "TrustedDevice" : "DirectPassword";
                 await _trustedDeviceManager.SetSessionProvenanceAsync(token, provenance, completedDirectTwoFactor ? DateTime.UtcNow : null).ConfigureAwait(false);
                 await _trustedDeviceManager.ObserveAsync(user.Id, request.DeviceCredential, request.DeviceId, request.App, request.AppVersion, request.DeviceName, request.Platform, request.OsVersion, request.RemoteEndPoint, completedDirectTwoFactor).ConfigureAwait(false);
-                if (_config.Configuration.TrustedDevicesEnabled && request.TrustDevice && completedDirectTwoFactor && user.GetInactiveLogoutMinutes() == 0 && !string.IsNullOrWhiteSpace(request.DeviceCredential))
+                if (_config.Configuration.TrustedDevicesEnabled && completedDirectTwoFactor && user.GetInactiveLogoutMinutes() == 0 && !string.IsNullOrWhiteSpace(request.DeviceCredential))
                 {
                     await _trustedDeviceManager.IssueAsync(user.Id, request.DeviceCredential, request.DeviceId, "Direct", user.Id, user.HasPermission(PermissionKind.IsAdministrator)).ConfigureAwait(false);
                 }
