@@ -59,7 +59,7 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     [HttpPost("Queue/{requestId}/Select")]
     [Authorize]
     public async Task<ActionResult<DeviceApprovalRequestDto>> Select([FromRoute] string requestId)
-        => await _portal.SelectAsync(requestId, User.GetUserId(), User.GetToken()!).ConfigureAwait(false);
+        => Ok(await _portal.SelectAsync(requestId, User.GetUserId(), User.GetToken()!).ConfigureAwait(false));
 
     [HttpPost("Queue/{requestId}/Confirm")]
     [Authorize]
