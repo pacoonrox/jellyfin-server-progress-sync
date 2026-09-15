@@ -17,6 +17,7 @@ public sealed class DeviceApprovalControllerAuthorizationTests
     [InlineData(nameof(DeviceApprovalController.Update))]
     [InlineData(nameof(DeviceApprovalController.Trust))]
     [InlineData(nameof(DeviceApprovalController.Revoke))]
+    [InlineData(nameof(DeviceApprovalController.Prune))]
     [InlineData(nameof(DeviceApprovalController.RevokeUser))]
     [InlineData(nameof(DeviceApprovalController.RevokeAll))]
     public void TrustedDeviceManagement_IsAdministratorOnly(string methodName)
