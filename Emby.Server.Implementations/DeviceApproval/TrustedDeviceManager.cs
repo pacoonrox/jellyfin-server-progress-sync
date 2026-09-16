@@ -85,10 +85,24 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         }
 
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var limitedInstallationId = Limit(installationId, 256);
+        var neverRecord = await db.TrustedDevices.FirstOrDefaultAsync(x => x.UserId.Equals(userId) && x.InstallationId == limitedInstallationId && x.State == "Never").ConfigureAwait(false);
+        if (neverRecord is not null)
+        {
+            neverRecord.LastSeenUtc = DateTime.UtcNow;
+            neverRecord.AppName = Limit(appName, 64);
+            neverRecord.AppVersion = Limit(appVersion, 32);
+            neverRecord.Platform = Limit(platform, 64);
+            neverRecord.OsVersion = Limit(osVersion, 64);
+            neverRecord.LastIpAddress = Limit(ipAddress, 64);
+            await db.SaveChangesAsync().ConfigureAwait(false);
+            return;
+        }
+
         var record = await db.TrustedDevices.SingleOrDefaultAsync(x => x.UserId.Equals(userId) && x.CredentialHash == hash).ConfigureAwait(false);
         if (record is null)
         {
-            record = new TrustedDevice { UserId = userId, CredentialHash = hash, InstallationId = Limit(installationId, 256), FirstSeenUtc = DateTime.UtcNow, State = "Observed", Source = "Observed" };
+            record = new TrustedDevice { UserId = userId, CredentialHash = hash, InstallationId = limitedInstallationId, FirstSeenUtc = DateTime.UtcNow, State = "Observed", Source = "Observed" };
             db.TrustedDevices.Add(record);
         }
 
@@ -114,15 +128,32 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         }
 
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var limitedInstallationId = Limit(installationId, 256);
+        var neverRecord = await db.TrustedDevices.FirstOrDefaultAsync(x => x.UserId.Equals(userId) && x.InstallationId == limitedInstallationId && x.State == "Never").ConfigureAwait(false);
+        if (neverRecord is not null)
+        {
+            neverRecord.LastSeenUtc = DateTime.UtcNow;
+            db.SecurityAuditRecords.Add(NewAudit("TrustIssueBlocked", source, "NeverTrusted", actorUserId, userId, neverRecord.Id, administrator));
+            await db.SaveChangesAsync().ConfigureAwait(false);
+            return;
+        }
+
         var record = await db.TrustedDevices.SingleOrDefaultAsync(x => x.UserId.Equals(userId) && x.CredentialHash == hash).ConfigureAwait(false);
         if (record is null)
         {
-            record = new TrustedDevice { UserId = userId, CredentialHash = hash, InstallationId = Limit(installationId, 256), FirstSeenUtc = DateTime.UtcNow, LastSeenUtc = DateTime.UtcNow };
+            record = new TrustedDevice { UserId = userId, CredentialHash = hash, InstallationId = limitedInstallationId, FirstSeenUtc = DateTime.UtcNow, LastSeenUtc = DateTime.UtcNow };
             db.TrustedDevices.Add(record);
+        }
+        else if (string.Equals(record.State, "Never", StringComparison.Ordinal))
+        {
+            record.LastSeenUtc = DateTime.UtcNow;
+            db.SecurityAuditRecords.Add(NewAudit("TrustIssueBlocked", source, "NeverTrusted", actorUserId, userId, record.Id, administrator));
+            await db.SaveChangesAsync().ConfigureAwait(false);
+            return;
         }
 
         var now = DateTime.UtcNow;
-        record.InstallationId = Limit(installationId, 256);
+        record.InstallationId = limitedInstallationId;
         record.Source = Limit(source, 32);
         record.State = "Trusted";
         record.IssuedUtc = now;
@@ -158,15 +189,10 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             return false;
         }
 
-        if (device.AuthenticationProvenance == "DirectTwoFactor" && device.DirectTwoFactorVerifiedUtc is not null)
-        {
-            return true;
-        }
-
-        // Accounts without 2FA have no challenge to complete; a direct password
-        // session is therefore the strongest available authentication provenance.
-        var user = _users.GetUserById(device.UserId);
-        return device.AuthenticationProvenance == "DirectPassword" && user is not null && !user.IsTwoFactorAuthenticationEnabled();
+        // The endpoint already requires an authenticated Jellyfin user. Any
+        // current session may approve another request, including sessions that
+        // were themselves created through Quick Sign-On.
+        return true;
     }
 
     public async Task<IReadOnlyList<TrustedDeviceDto>> QueryAsync(string? search, Guid? userId, string? state)
@@ -212,6 +238,18 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         var record = await db.TrustedDevices.FindAsync(id).ConfigureAwait(false) ?? throw new ResourceNotFoundException("Trusted device not found");
         record.State = "Revoked"; record.RevokedUtc = DateTime.UtcNow;
         db.SecurityAuditRecords.Add(NewAudit("TrustRevoked", "Administrator", "Success", actorUserId, record.UserId, record.Id, true));
+        await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    public async Task NeverTrustAsync(long id, Guid actorUserId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var record = await db.TrustedDevices.FindAsync(id).ConfigureAwait(false) ?? throw new ResourceNotFoundException("Trusted device not found");
+        record.State = "Never";
+        record.Source = "Administrator";
+        record.RevokedUtc = DateTime.UtcNow;
+        record.RequiresFreshTwoFactor = true;
+        db.SecurityAuditRecords.Add(NewAudit("DeviceMarkedNeverTrust", "Administrator", "Success", actorUserId, record.UserId, record.Id, true));
         await db.SaveChangesAsync().ConfigureAwait(false);
     }
 

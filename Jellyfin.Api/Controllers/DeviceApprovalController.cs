@@ -15,6 +15,7 @@ using MediaBrowser.Model.DeviceApproval;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Api.Controllers;
 
@@ -29,10 +30,11 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     private readonly ITrustedDeviceManager _trust;
     private readonly IAuthorizationContext _authorization;
     private readonly IServerConfigurationManager _configuration;
+    private readonly ILogger<DeviceApprovalController> _logger;
 
-    public DeviceApprovalController(IDeviceApprovalPortal portal, ITrustedDeviceManager trust, IAuthorizationContext authorization, IServerConfigurationManager configuration)
+    public DeviceApprovalController(IDeviceApprovalPortal portal, ITrustedDeviceManager trust, IAuthorizationContext authorization, IServerConfigurationManager configuration, ILogger<DeviceApprovalController> logger)
     {
-        _portal = portal; _trust = trust; _authorization = authorization; _configuration = configuration;
+        _portal = portal; _trust = trust; _authorization = authorization; _configuration = configuration; _logger = logger;
     }
 
     [HttpGet("Enabled")]
@@ -54,7 +56,32 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     [HttpGet("Queue")]
     [Authorize]
     public ActionResult<IReadOnlyList<DeviceApprovalRequestDto>> Queue()
-        => Ok(_portal.GetQueue(User.IsInRole(UserRoles.Administrator), User.GetUserId()));
+        => Ok(_portal.GetQueue(User.IsInRole(UserRoles.Administrator)));
+
+    [HttpPost("Portal/Entered")]
+    [Authorize]
+    public async Task<ActionResult> PortalEntered()
+    {
+        var userId = User.GetUserId();
+        try
+        {
+            await _trust.AuditAsync(
+                "QuickConnectPortalEntered",
+                "Portal",
+                "Success",
+                userId,
+                userId,
+                null,
+                User.IsInRole(UserRoles.Administrator),
+                $"IP: {HttpContext.GetNormalizedRemoteIP()}; Device: {User.GetDeviceId()}; Host: {Request.Host}; User-Agent: {Request.Headers.UserAgent}").ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unable to write the Quick Connect portal-entry security audit event for user {UserId}.", userId);
+        }
+
+        return NoContent();
+    }
 
     [HttpPost("Queue/{requestId}/Select")]
     [Authorize]
@@ -118,6 +145,10 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     [HttpDelete("Admin/TrustedDevices/{id:long}")]
     [Authorize(Roles = UserRoles.Administrator)]
     public async Task<ActionResult> Revoke([FromRoute] long id) { await _trust.RevokeAsync(id, User.GetUserId()).ConfigureAwait(false); return NoContent(); }
+
+    [HttpPost("Admin/TrustedDevices/{id:long}/Never")]
+    [Authorize(Roles = UserRoles.Administrator)]
+    public async Task<ActionResult> NeverTrust([FromRoute] long id) { await _trust.NeverTrustAsync(id, User.GetUserId()).ConfigureAwait(false); return NoContent(); }
 
     [HttpDelete("Admin/TrustedDevices/{id:long}/Prune")]
     [Authorize(Roles = UserRoles.Administrator)]

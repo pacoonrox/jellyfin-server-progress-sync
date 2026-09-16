@@ -39,16 +39,16 @@ public sealed class DeviceApprovalPortalTests
     {
         await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
 
-        Assert.Null(Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).RequestingIpAddress);
-        Assert.Equal("192.0.2.10", Assert.Single(_subject.GetQueue(true, Guid.NewGuid())).RequestingIpAddress);
-        Assert.Equal("jellyfin.example.test", Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).ConnectionDomain);
+        Assert.Null(Assert.Single(_subject.GetQueue(false)).RequestingIpAddress);
+        Assert.Equal("192.0.2.10", Assert.Single(_subject.GetQueue(true)).RequestingIpAddress);
+        Assert.Equal("jellyfin.example.test", Assert.Single(_subject.GetQueue(false)).ConnectionDomain);
     }
 
     [Fact]
     public async Task ConcurrentSelection_HasExactlyOneWinner()
     {
         await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
-        var id = Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).Id;
+        var id = Assert.Single(_subject.GetQueue(false)).Id;
 
         var attempts = new[]
         {
@@ -64,33 +64,33 @@ public sealed class DeviceApprovalPortalTests
     {
         _trust.Setup(x => x.CanApproveAsync("portal-token")).ReturnsAsync(false);
         await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
-        var id = Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).Id;
+        var id = Assert.Single(_subject.GetQueue(false)).Id;
 
         await Assert.ThrowsAsync<AuthenticationException>(() => _subject.SelectAsync(id, Guid.NewGuid(), "portal-token"));
     }
 
     [Fact]
-    public async Task Selection_UsesUnpredictableMatchingValueAndNoReturnsToQueue()
+    public async Task Selection_NoReturnsToQueue()
     {
         await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
         var actor = Guid.NewGuid();
-        var id = Assert.Single(_subject.GetQueue(false, actor)).Id;
+        var id = Assert.Single(_subject.GetQueue(false)).Id;
         var selected = await _subject.SelectAsync(id, actor, "direct");
 
-        Assert.Matches("^[A-Z]+-[A-Z]+-[A-Z]+-[0-9]{3}$", selected.MatchingValue!);
+        Assert.Equal(DeviceApprovalState.Selected, selected.State);
         Assert.Null(await _subject.ConfirmAsync(id, actor, "direct", false, false));
-        Assert.Equal(DeviceApprovalState.Pending, Assert.Single(_subject.GetQueue(false, actor)).State);
+        Assert.Equal(DeviceApprovalState.Pending, Assert.Single(_subject.GetQueue(false)).State);
     }
 
     [Fact]
     public async Task ExpiredRequest_CannotBeSelected()
     {
         await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
-        var id = Assert.Single(_subject.GetQueue(false, Guid.NewGuid())).Id;
+        var id = Assert.Single(_subject.GetQueue(false)).Id;
         _time.Advance(TimeSpan.FromMinutes(5));
 
         await Assert.ThrowsAsync<ResourceNotFoundException>(() => _subject.SelectAsync(id, Guid.NewGuid(), "direct"));
-        Assert.Empty(_subject.GetQueue(false, Guid.NewGuid()));
+        Assert.Empty(_subject.GetQueue(false));
     }
 
     [Fact]
@@ -99,7 +99,7 @@ public sealed class DeviceApprovalPortalTests
         await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
         _time.Advance(TimeSpan.FromSeconds(11));
 
-        Assert.Empty(_subject.GetQueue(false, Guid.NewGuid()));
+        Assert.Empty(_subject.GetQueue(false));
     }
 
     [Fact]
@@ -109,7 +109,7 @@ public sealed class DeviceApprovalPortalTests
         await _subject.CancelAsync(request.RequestSecret!);
 
         Assert.Throws<ResourceNotFoundException>(() => _subject.GetStatus(request.RequestSecret!));
-        Assert.Empty(_subject.GetQueue(false, Guid.NewGuid()));
+        Assert.Empty(_subject.GetQueue(false));
     }
 
     private static DeviceApprovalInitiateRequest Request() => new() { DeviceCredential = new string('x', 43), Platform = "Linux", OsVersion = "6.1" };

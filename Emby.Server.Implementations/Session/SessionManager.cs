@@ -1756,6 +1756,18 @@ namespace Emby.Server.Implementations.Session
                 throw new AuthenticationException("Invalid username or password entered.");
             }
 
+            // Passwordless entry points such as Device Approval and legacy
+            // Quick Connect must preserve normal account restrictions.
+            if (!enforcePassword && user.HasPermission(PermissionKind.IsDisabled))
+            {
+                throw new SecurityException($"The {user.Username} account is currently disabled.");
+            }
+
+            if (!enforcePassword && !user.IsParentalScheduleAllowed())
+            {
+                throw new SecurityException("User is not allowed access at this time.");
+            }
+
             if (!string.IsNullOrEmpty(request.DeviceId)
                 && !_deviceManager.CanAccessDevice(user, request.DeviceId))
             {
@@ -1784,6 +1796,22 @@ namespace Emby.Server.Implementations.Session
                         {
                             user.SetTwoFactorAuthenticationFailedAttemptCount(user.GetTwoFactorAuthenticationFailedAttemptCount() + 1);
                             await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+                            try
+                            {
+                                await _trustedDeviceManager.AuditAsync(
+                                    "TwoFactorAuthenticationFailed",
+                                    "DirectLogin",
+                                    "Rejected",
+                                    user.Id,
+                                    user.Id,
+                                    null,
+                                    user.HasPermission(PermissionKind.IsAdministrator),
+                                    request.GetAuthFailureSource()).ConfigureAwait(false);
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogError(ex, "Unable to write the failed two-factor security audit event for user {UserId}.", user.Id);
+                            }
                         }
 
                         _logger.LogWarning(

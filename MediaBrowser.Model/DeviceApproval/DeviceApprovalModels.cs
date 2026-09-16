@@ -28,7 +28,6 @@ public sealed class DeviceApprovalRequestDto
     public DateTime CreatedUtc { get; set; }
     public DateTime ExpiresUtc { get; set; }
     public DeviceApprovalState State { get; set; }
-    public string? MatchingValue { get; set; }
     public object? AuthenticationResult { get; set; }
     public bool TrustAllowed { get; set; }
     public int TrustDurationDays { get; set; } = 30;

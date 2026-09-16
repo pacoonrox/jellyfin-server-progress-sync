@@ -17,6 +17,7 @@ public sealed class DeviceApprovalControllerAuthorizationTests
     [InlineData(nameof(DeviceApprovalController.Update))]
     [InlineData(nameof(DeviceApprovalController.Trust))]
     [InlineData(nameof(DeviceApprovalController.Revoke))]
+    [InlineData(nameof(DeviceApprovalController.NeverTrust))]
     [InlineData(nameof(DeviceApprovalController.Prune))]
     [InlineData(nameof(DeviceApprovalController.RevokeUser))]
     [InlineData(nameof(DeviceApprovalController.RevokeAll))]
@@ -29,6 +30,7 @@ public sealed class DeviceApprovalControllerAuthorizationTests
 
     [Theory]
     [InlineData(nameof(DeviceApprovalController.Queue))]
+    [InlineData(nameof(DeviceApprovalController.PortalEntered))]
     [InlineData(nameof(DeviceApprovalController.Select))]
     [InlineData(nameof(DeviceApprovalController.Confirm))]
     [InlineData(nameof(DeviceApprovalController.Deny))]
@@ -36,5 +38,13 @@ public sealed class DeviceApprovalControllerAuthorizationTests
     {
         var method = typeof(DeviceApprovalController).GetMethods().Single(x => x.Name == methodName);
         Assert.Single(method.GetCustomAttributes(typeof(AuthorizeAttribute), true));
+    }
+
+    [Fact]
+    public void LegacyQuickConnectAuthorize_AllowsAnyAuthenticatedRole()
+    {
+        var method = typeof(QuickConnectController).GetMethods().Single(x => x.Name == nameof(QuickConnectController.Authorize));
+        var authorize = Assert.Single(method.GetCustomAttributes(typeof(AuthorizeAttribute), true).Cast<AuthorizeAttribute>());
+        Assert.True(string.IsNullOrEmpty(authorize.Roles));
     }
 }

@@ -624,6 +624,7 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<MediaBrowser.Controller.DeviceApproval.ITrustedDeviceManager, DeviceApproval.TrustedDeviceManager>();
             serviceCollection.AddSingleton(TimeProvider.System);
             serviceCollection.AddSingleton<MediaBrowser.Controller.DeviceApproval.IDeviceApprovalPortal, DeviceApproval.DeviceApprovalPortal>();
+            serviceCollection.AddSingleton<MediaBrowser.Controller.QuickConnect.IQuickConnect, QuickConnect.QuickConnectManager>();
 
             serviceCollection.AddSingleton<ISubtitleParser, SubtitleEditParser>();
             serviceCollection.AddSingleton<ISubtitleEncoder, SubtitleEncoder>();

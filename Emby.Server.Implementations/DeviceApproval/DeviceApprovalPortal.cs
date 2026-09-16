@@ -21,7 +21,6 @@ namespace Emby.Server.Implementations.DeviceApproval;
 
 public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
 {
-    private static readonly string[] Words = ["amber", "cedar", "coral", "falcon", "maple", "orbit", "river", "violet", "beacon", "breeze", "canyon", "comet", "drift", "ember", "garden", "harbor", "island", "jasmine", "lantern", "meadow", "nectar", "oak", "pebble", "quartz", "rocket", "spruce", "thunder", "willow", "xenon", "yonder", "zephyr", "acorn"];
     private readonly ConcurrentDictionary<string, Pending> _requests = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, string> _secretIndex = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -82,10 +81,10 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
         }
     }
 
-    public IReadOnlyList<DeviceApprovalRequestDto> GetQueue(bool includeIpAddress, Guid viewingUserId)
+    public IReadOnlyList<DeviceApprovalRequestDto> GetQueue(bool includeIpAddress)
     {
         AssertEnabled(); Expire();
-        return _requests.Values.Where(x => x.State is DeviceApprovalState.Pending or DeviceApprovalState.Selected).OrderBy(x => x.CreatedUtc).Select(x => ToDto(x, includeIpAddress, false, x.SelectedBy.Equals(viewingUserId))).ToArray();
+        return _requests.Values.Where(x => x.State is DeviceApprovalState.Pending or DeviceApprovalState.Selected).OrderBy(x => x.CreatedUtc).Select(x => ToDto(x, includeIpAddress, false)).ToArray();
     }
 
     public async Task<DeviceApprovalRequestDto> SelectAsync(string requestId, Guid actorUserId, string actorAccessToken)
@@ -94,7 +93,7 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
         if (!await _trust.CanApproveAsync(actorAccessToken).ConfigureAwait(false))
         {
             await _trust.AuditAsync("PortalSelection", "Portal", "RejectedProvenance", actorUserId, null, null, false).ConfigureAwait(false);
-            throw new AuthenticationException("Fresh direct password and two-factor authentication is required to approve devices");
+            throw new AuthenticationException("This session is not eligible to approve another device");
         }
 
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -102,8 +101,8 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
         {
             var request = GetPending(requestId);
             if (request.State != DeviceApprovalState.Pending) throw new InvalidOperationException("Request is already selected or complete");
-            request.State = DeviceApprovalState.Selected; request.SelectedBy = actorUserId; request.SelectedUtc = _time.GetUtcNow().UtcDateTime; request.MatchingValue = GenerateMatchingValue();
-            var dto = ToDto(request, false, false, true);
+            request.State = DeviceApprovalState.Selected; request.SelectedBy = actorUserId; request.SelectedUtc = _time.GetUtcNow().UtcDateTime;
+            var dto = ToDto(request, false, false);
             var user = _users.GetUserById(actorUserId);
             dto.TrustAllowed = _configuration.Configuration.TrustedDevicesEnabled && user is not null && user.GetInactiveLogoutMinutes() == 0;
             dto.TrustDurationDays = _configuration.Configuration.TrustedDeviceDefaultDays;
@@ -128,7 +127,7 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
 
             if (!matches)
             {
-                request.State = DeviceApprovalState.Pending; request.SelectedBy = null; request.MatchingValue = null; request.SelectedUtc = null;
+                request.State = DeviceApprovalState.Pending; request.SelectedBy = null; request.SelectedUtc = null;
                 await _trust.AuditAsync("PortalSelectionCanceled", "Portal", "Success", actorUserId, null, null, false, $"Request {requestId}").ConfigureAwait(false);
                 return null;
             }
@@ -140,7 +139,6 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
                 request.State = DeviceApprovalState.Pending;
                 request.SelectedBy = null;
                 request.SelectedUtc = null;
-                request.MatchingValue = null;
                 await _trust.AuditAsync("PortalApproval", "Portal", "RejectedDisabledAccount", actorUserId, actorUserId, null, user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator), $"Request {requestId}").ConfigureAwait(false);
                 throw new AuthenticationException("The approving account is disabled");
             }
@@ -158,7 +156,7 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
                 {
                     await _trust.IssueAsync(actorUserId, request.DeviceCredential, request.InstallationId, "Portal", actorUserId, user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator)).ConfigureAwait(false);
                 }
-                request.Result = result; request.State = DeviceApprovalState.Approved; request.MatchingValue = null;
+                request.Result = result; request.State = DeviceApprovalState.Approved;
                 await _trust.AuditAsync("PortalApproved", "Portal", "Success", actorUserId, actorUserId, null, user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator), $"Request {requestId}").ConfigureAwait(false);
                 return result;
             }
@@ -178,7 +176,6 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
                 request.State = DeviceApprovalState.Pending;
                 request.SelectedBy = null;
                 request.SelectedUtc = null;
-                request.MatchingValue = null;
                 await _trust.AuditAsync("PortalApproval", "Portal", "Failed", actorUserId, actorUserId, null, user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator), $"Request {requestId}").ConfigureAwait(false);
                 throw;
             }
@@ -215,11 +212,10 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
             _ = _trust.AuditAsync(disconnected ? "PortalDisconnected" : "PortalExpired", "Portal", "Success", null, null, null, false, $"Request {pair.Key}");
         }
     }
-    private static string GenerateMatchingValue() => $"{Words[RandomNumberGenerator.GetInt32(Words.Length)]}-{Words[RandomNumberGenerator.GetInt32(Words.Length)]}-{Words[RandomNumberGenerator.GetInt32(Words.Length)]}-{RandomNumberGenerator.GetInt32(100, 1000)}".ToUpperInvariant();
-    private static DeviceApprovalRequestDto ToDto(Pending x, bool includeIp, bool requester, bool includeMatch = true) => new() { Id = x.Id, RequestSecret = requester ? x.Secret : null, DeviceName = x.DeviceName, AppName = x.AppName, AppVersion = x.AppVersion, Platform = x.Platform, OsVersion = x.OsVersion, ConnectionDomain = x.ConnectionDomain, RequestingIpAddress = includeIp ? x.IpAddress : null, CreatedUtc = x.CreatedUtc, ExpiresUtc = x.ExpiresUtc, State = x.State, MatchingValue = x.State == DeviceApprovalState.Selected && includeMatch ? x.MatchingValue : null };
+    private static DeviceApprovalRequestDto ToDto(Pending x, bool includeIp, bool requester) => new() { Id = x.Id, RequestSecret = requester ? x.Secret : null, DeviceName = x.DeviceName, AppName = x.AppName, AppVersion = x.AppVersion, Platform = x.Platform, OsVersion = x.OsVersion, ConnectionDomain = x.ConnectionDomain, RequestingIpAddress = includeIp ? x.IpAddress : null, CreatedUtc = x.CreatedUtc, ExpiresUtc = x.ExpiresUtc, State = x.State };
 
     private sealed class Pending
     {
-        public string Id = string.Empty; public string Secret = string.Empty; public string DeviceCredential = string.Empty; public string InstallationId = string.Empty; public string DeviceName = string.Empty; public string AppName = string.Empty; public string AppVersion = string.Empty; public string Platform = string.Empty; public string OsVersion = string.Empty; public string ConnectionDomain = string.Empty; public string IpAddress = string.Empty; public DateTime CreatedUtc; public DateTime LastSeenUtc; public DateTime ExpiresUtc; public DeviceApprovalState State; public Guid? SelectedBy; public DateTime? SelectedUtc; public string? MatchingValue; public AuthenticationResult? Result;
+        public string Id = string.Empty; public string Secret = string.Empty; public string DeviceCredential = string.Empty; public string InstallationId = string.Empty; public string DeviceName = string.Empty; public string AppName = string.Empty; public string AppVersion = string.Empty; public string Platform = string.Empty; public string OsVersion = string.Empty; public string ConnectionDomain = string.Empty; public string IpAddress = string.Empty; public DateTime CreatedUtc; public DateTime LastSeenUtc; public DateTime ExpiresUtc; public DeviceApprovalState State; public Guid? SelectedBy; public DateTime? SelectedUtc; public AuthenticationResult? Result;
     }
 }

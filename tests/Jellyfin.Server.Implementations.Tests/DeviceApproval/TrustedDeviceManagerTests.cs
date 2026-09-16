@@ -3,6 +3,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.DeviceApproval;
 using Jellyfin.Database.Implementations;
+using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Entities.Security;
 using Jellyfin.Database.Implementations.Locking;
 using Jellyfin.Database.Providers.Sqlite;
 using MediaBrowser.Controller.Configuration;
@@ -66,6 +68,25 @@ public sealed class TrustedDeviceManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task NeverTrust_BlocksAutomaticReissueUntilAdministratorExplicitlyTrustsAgain()
+    {
+        var user = Guid.NewGuid();
+        await _subject.IssueAsync(user, Credential, "installation", "Direct", user, false);
+        var record = (await _subject.QueryAsync(null, user, null))[0];
+
+        await _subject.NeverTrustAsync(record.Id, user);
+        await _subject.IssueAsync(user, Credential, "installation", "Direct", user, false);
+        await _subject.IssueAsync(user, new string('z', 43), "installation", "Direct", user, false);
+
+        var blocked = (await _subject.QueryAsync(null, user, null))[0];
+        Assert.Equal("Never", blocked.State);
+        Assert.False(await Validate(user, Credential));
+
+        await _subject.TrustObservedAsync(blocked.Id, null, DateTime.UtcNow.AddDays(30), user);
+        Assert.True(await Validate(user, Credential));
+    }
+
+    [Fact]
     public async Task AutomaticLogoutRequiresFreshTwoFactorWithoutDeletingAdministratorTrust()
     {
         var user = Guid.NewGuid();
@@ -78,10 +99,35 @@ public sealed class TrustedDeviceManagerTests : IDisposable
         Assert.True(await Validate(user, Credential));
     }
 
+    [Theory]
+    [InlineData("Legacy", true)]
+    [InlineData("TrustedDevice", true)]
+    [InlineData("Portal", true)]
+    public async Task ApprovalEligibility_AllowsEveryAuthenticatedSession(string provenance, bool expected)
+    {
+        var token = await AddSession(provenance);
+
+        Assert.Equal(expected, await _subject.CanApproveAsync(token));
+    }
+
     public void Dispose() => _connection.Dispose();
 
     private Task<bool> Validate(Guid user, string credential)
         => _subject.ValidateAsync(user, credential, "installation", "Web", "2.0", "Browser", "192.0.2.1");
+
+    private async Task<string> AddSession(string provenance)
+    {
+        await using var context = CreateContext();
+        var user = new User($"user-{Guid.NewGuid():N}", "default", "default");
+        var device = new Device(user.Id, "Web", "2.0", "Browser", $"device-{Guid.NewGuid():N}")
+        {
+            AuthenticationProvenance = provenance
+        };
+        context.Users.Add(user);
+        context.Devices.Add(device);
+        await context.SaveChangesAsync();
+        return device.AccessToken;
+    }
 
     private JellyfinDbContext CreateContext()
         => new(_options, NullLogger<JellyfinDbContext>.Instance, new SqliteDatabaseProvider(null!, NullLogger<SqliteDatabaseProvider>.Instance), new NoLockBehavior(NullLogger<NoLockBehavior>.Instance));

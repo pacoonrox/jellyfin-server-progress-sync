@@ -8,10 +8,12 @@ using Jellyfin.Api.Controllers;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.DeviceApproval;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Users;
 using Microsoft.AspNetCore.Mvc;
@@ -53,7 +55,9 @@ public class UserControllerTests
             _mockAuthorizationContext.Object,
             _mockServerConfigurationManager.Object,
             _mockLogger.Object,
-            _mockPlaylistManager.Object);
+            _mockPlaylistManager.Object,
+            Mock.Of<IQuickConnect>(),
+            Mock.Of<ITrustedDeviceManager>());
     }
 
     [Theory]

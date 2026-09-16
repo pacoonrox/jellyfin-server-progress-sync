@@ -16,10 +16,12 @@ using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.DeviceApproval;
 using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Net;
 using MediaBrowser.Controller.Playlists;
+using MediaBrowser.Controller.QuickConnect;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
@@ -45,6 +47,8 @@ public class UserController : BaseJellyfinApiController
     private readonly IServerConfigurationManager _config;
     private readonly ILogger _logger;
     private readonly IPlaylistManager _playlistManager;
+    private readonly IQuickConnect _quickConnect;
+    private readonly ITrustedDeviceManager _trustedDeviceManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UserController"/> class.
@@ -57,6 +61,8 @@ public class UserController : BaseJellyfinApiController
     /// <param name="config">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="logger">Instance of the <see cref="ILogger"/> interface.</param>
     /// <param name="playlistManager">Instance of the <see cref="IPlaylistManager"/> interface.</param>
+    /// <param name="quickConnect">Instance of the legacy Quick Connect compatibility service.</param>
+    /// <param name="trustedDeviceManager">Trusted-device and security-audit manager.</param>
     public UserController(
         IUserManager userManager,
         ISessionManager sessionManager,
@@ -65,7 +71,9 @@ public class UserController : BaseJellyfinApiController
         IAuthorizationContext authContext,
         IServerConfigurationManager config,
         ILogger<UserController> logger,
-        IPlaylistManager playlistManager)
+        IPlaylistManager playlistManager,
+        IQuickConnect quickConnect,
+        ITrustedDeviceManager trustedDeviceManager)
     {
         _userManager = userManager;
         _sessionManager = sessionManager;
@@ -75,6 +83,8 @@ public class UserController : BaseJellyfinApiController
         _config = config;
         _logger = logger;
         _playlistManager = playlistManager;
+        _quickConnect = quickConnect;
+        _trustedDeviceManager = trustedDeviceManager;
     }
 
     /// <summary>
@@ -258,7 +268,7 @@ public class UserController : BaseJellyfinApiController
     [Tags("Authentication")]
     public ActionResult<AuthenticationResult> AuthenticateWithQuickConnect([FromBody, Required] QuickConnectDto request)
     {
-        return StatusCode(StatusCodes.Status410Gone, "Quick Connect was replaced by the shared device-approval portal; this client must be updated.");
+        return _quickConnect.GetAuthorizedRequest(request.Secret);
     }
 
     /// <summary>
@@ -443,6 +453,23 @@ public class UserController : BaseJellyfinApiController
         {
             user.SetTwoFactorAuthenticationFailedAttemptCount(user.GetTwoFactorAuthenticationFailedAttemptCount() + 1);
             await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+            try
+            {
+                await _trustedDeviceManager.AuditAsync(
+                    "TwoFactorAuthenticationFailed",
+                    "SetupVerification",
+                    "Rejected",
+                    User.GetUserId(),
+                    userId,
+                    null,
+                    User.IsInRole(UserRoles.Administrator),
+                    $"IP: {HttpContext.GetNormalizedRemoteIP()}; Device: {User.GetDeviceId()}; Host: {Request.Host}; User-Agent: {Request.Headers.UserAgent}").ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Unable to write the failed two-factor setup security audit event for user {UserId}.", userId);
+            }
+
             _logger.LogWarning("Two-factor setup verification failed for user {UserId}.", userId);
             return StatusCode(StatusCodes.Status403Forbidden, "Invalid two-factor authentication code.");
         }

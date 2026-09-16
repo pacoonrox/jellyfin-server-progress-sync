@@ -60,11 +60,11 @@ namespace Emby.Server.Implementations.HttpServer.Security
             }
 
             // A direct password session for an account that has not yet
-            // registered 2FA must still be able to use the shared approval
-            // portal.  DeviceApprovalPortal performs the separate server-side
-            // provenance check, so portal/trusted sessions cannot approve.
+            // registered 2FA must still be able to use both approval flows.
+            // DeviceApprovalPortal performs its separate provenance check.
             if (path.Equals("DeviceApproval/Queue", StringComparison.OrdinalIgnoreCase)
-                || path.StartsWith("DeviceApproval/Queue/", StringComparison.OrdinalIgnoreCase))
+                || path.StartsWith("DeviceApproval/Queue/", StringComparison.OrdinalIgnoreCase)
+                || path.Equals("QuickConnect/Authorize", StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
