@@ -143,15 +143,26 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             // launch forever. A real trust credential is still matched
             // exactly further up, so this only affects the passive
             // inventory list: fold a launch with no id match into the most
-            // recently seen still-Observed row for the same
-            // (user, device name, app, platform) signature instead of
-            // growing an ever-increasing pile of one-shot rows for what is
-            // almost certainly the same physical device.
+            // recently seen row for the same (user, device name, app,
+            // platform) signature instead of growing an ever-increasing
+            // pile of one-shot rows for what is almost certainly the same
+            // physical device. "Revoked"/"Expired" are included so a device
+            // whose old installation id got revoked doesn't immediately
+            // spawn a brand-new duplicate on its very next launch. "Never"
+            // stays excluded so it keeps blocking future trust, and
+            // "Trusted" stays excluded deliberately: rebinding an *active*
+            // trusted row's InstallationId off nothing but a spoofable
+            // name/app/platform match (no credential proof) would let
+            // anyone claiming the same signature hijack that row's
+            // identity, even though they still couldn't pass ValidateAsync
+            // without the real credential.
             var limitedDeviceName = Limit(deviceName, 128);
             var limitedAppName = Limit(appName, 64);
             var limitedPlatform = Limit(platform, 64);
             record = await db.TrustedDevices
-                .Where(x => x.UserId.Equals(userId) && x.State == "Observed" && x.FriendlyName == limitedDeviceName && x.AppName == limitedAppName && x.Platform == limitedPlatform)
+                .Where(x => x.UserId.Equals(userId)
+                    && (x.State == "Observed" || x.State == "Revoked" || x.State == "Expired")
+                    && x.FriendlyName == limitedDeviceName && x.AppName == limitedAppName && x.Platform == limitedPlatform)
                 .OrderByDescending(x => x.LastSeenUtc)
                 .FirstOrDefaultAsync().ConfigureAwait(false);
             if (record is not null)
