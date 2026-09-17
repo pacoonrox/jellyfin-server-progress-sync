@@ -1794,16 +1794,16 @@ namespace Emby.Server.Implementations.Session
                     var twoFactorSecret = user.GetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationSecret);
                     if (!usedTrustedDevice && !TotpHelper.VerifyCode(twoFactorSecret ?? string.Empty, request.TwoFactorCode, DateTimeOffset.UtcNow))
                     {
+                        var lockedOutByTwoFactor = false;
                         if (!string.IsNullOrWhiteSpace(request.TwoFactorCode))
                         {
-                            user.SetTwoFactorAuthenticationFailedAttemptCount(user.GetTwoFactorAuthenticationFailedAttemptCount() + 1);
-                            await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+                            lockedOutByTwoFactor = await _userManager.RegisterFailedTwoFactorAttemptAsync(user).ConfigureAwait(false);
                             try
                             {
                                 await _trustedDeviceManager.AuditAsync(
-                                    "TwoFactorAuthenticationFailed",
+                                    lockedOutByTwoFactor ? "TwoFactorLockout" : "TwoFactorAuthenticationFailed",
                                     "DirectLogin",
-                                    "Rejected",
+                                    lockedOutByTwoFactor ? "AccountDisabled" : "Rejected",
                                     user.Id,
                                     user.Id,
                                     null,
@@ -1820,6 +1820,11 @@ namespace Emby.Server.Implementations.Session
                             "Two-factor authentication failed for user {User} from {Source}.",
                             user.Username,
                             request.GetAuthFailureSource());
+
+                        if (lockedOutByTwoFactor)
+                        {
+                            throw new SecurityException($"The {user.Username} account is currently disabled. Please consult with your administrator.");
+                        }
 
                         return new AuthenticationResult
                         {

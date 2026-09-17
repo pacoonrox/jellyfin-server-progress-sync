@@ -260,6 +260,38 @@ namespace Jellyfin.Server.Implementations.Users
             }
         }
 
+        /// <inheritdoc/>
+        public async Task<bool> RegisterFailedTwoFactorAttemptAsync(User user)
+        {
+            var failedAttempts = user.GetTwoFactorAuthenticationFailedAttemptCount() + 1;
+            user.SetTwoFactorAuthenticationFailedAttemptCount(failedAttempts);
+
+            // Reuse the same threshold that already gates the password lockout below, rather
+            // than a second independently configured limit: a wrong TOTP code is just as much
+            // a failed sign-in attempt as a wrong password, and only one policy knob per user
+            // to reason about avoids one guard being tuned tighter than the other by accident.
+            var maxAttempts = user.LoginAttemptsBeforeLockout;
+            var lockedOutNow = false;
+            if (maxAttempts.HasValue && failedAttempts >= maxAttempts.Value && !user.HasPermission(PermissionKind.IsDisabled))
+            {
+                user.SetPermission(PermissionKind.IsDisabled, true);
+                lockedOutNow = true;
+                _logger.LogWarning(
+                    "Disabling user {Username} due to {Attempts} unsuccessful two-factor authentication attempts.",
+                    user.Username,
+                    failedAttempts);
+            }
+
+            await UpdateUserAsync(user).ConfigureAwait(false);
+
+            if (lockedOutNow)
+            {
+                await _eventManager.PublishAsync(new UserLockedOutEventArgs(user)).ConfigureAwait(false);
+            }
+
+            return lockedOutNow;
+        }
+
         private static void SyncPermissions(User dbUser, ICollection<Permission> source)
         {
             var incoming = new Dictionary<PermissionKind, bool>();

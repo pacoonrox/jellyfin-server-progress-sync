@@ -451,14 +451,13 @@ public class UserController : BaseJellyfinApiController
         var pendingSecret = user.GetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationPendingSecret);
         if (!TotpHelper.VerifyCode(pendingSecret ?? string.Empty, request.Code, DateTimeOffset.UtcNow))
         {
-            user.SetTwoFactorAuthenticationFailedAttemptCount(user.GetTwoFactorAuthenticationFailedAttemptCount() + 1);
-            await _userManager.UpdateUserAsync(user).ConfigureAwait(false);
+            var lockedOutByTwoFactor = await _userManager.RegisterFailedTwoFactorAttemptAsync(user).ConfigureAwait(false);
             try
             {
                 await _trustedDeviceManager.AuditAsync(
-                    "TwoFactorAuthenticationFailed",
+                    lockedOutByTwoFactor ? "TwoFactorLockout" : "TwoFactorAuthenticationFailed",
                     "SetupVerification",
-                    "Rejected",
+                    lockedOutByTwoFactor ? "AccountDisabled" : "Rejected",
                     User.GetUserId(),
                     userId,
                     null,
@@ -471,6 +470,12 @@ public class UserController : BaseJellyfinApiController
             }
 
             _logger.LogWarning("Two-factor setup verification failed for user {UserId}.", userId);
+
+            if (lockedOutByTwoFactor)
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, "Too many invalid two-factor authentication codes. This account has been disabled; contact an administrator.");
+            }
+
             return StatusCode(StatusCodes.Status403Forbidden, "Invalid two-factor authentication code.");
         }
 

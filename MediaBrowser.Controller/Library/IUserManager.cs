@@ -81,6 +81,15 @@ namespace MediaBrowser.Controller.Library
         Task UpdateUserAsync(User user);
 
         /// <summary>
+        /// Records a failed two-factor authentication code and, once the user's configured
+        /// login-attempt threshold is reached, disables the account the same way repeated
+        /// invalid passwords do. Persists the updated user.
+        /// </summary>
+        /// <param name="user">The user who submitted an invalid two-factor code.</param>
+        /// <returns><c>true</c> if this failure caused the account to become disabled.</returns>
+        Task<bool> RegisterFailedTwoFactorAttemptAsync(User user);
+
+        /// <summary>
         /// Creates a user with the specified name.
         /// </summary>
         /// <param name="name">The name of the new user.</param>
