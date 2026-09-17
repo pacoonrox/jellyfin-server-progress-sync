@@ -267,10 +267,18 @@ namespace Emby.Server.Implementations.Session
             ArgumentException.ThrowIfNullOrEmpty(deviceId);
 
             var activityDate = DateTime.UtcNow;
-            var session = GetSessionInfo(appName, appVersion, deviceId, deviceName, remoteEndPoint, user);
+            var session = GetSessionInfo(appName, appVersion, deviceId, deviceName, remoteEndPoint, user, out var sessionCreated);
             var lastActivityDate = session.LastActivityDate;
             session.LastActivityDate = activityDate;
             StartCheckTimers();
+
+            if (sessionCreated && user is not null && DeviceInventoryPolicy.ShouldTrack(appName))
+            {
+                // A client that was already authenticated before an update is
+                // inventoried when it establishes a live in-memory session. This
+                // tracks genuinely connected clients without scanning old tokens.
+                await _trustedDeviceManager.ObserveAsync(user.Id, null, deviceId, appName, appVersion, deviceName, string.Empty, string.Empty, remoteEndPoint).ConfigureAwait(false);
+            }
 
             if (user is not null)
             {
@@ -499,6 +507,7 @@ namespace Emby.Server.Implementations.Session
         /// <param name="deviceName">Name of the device.</param>
         /// <param name="remoteEndPoint">The remote end point.</param>
         /// <param name="user">The user.</param>
+        /// <param name="sessionCreated">Set to <see langword="true"/> when this activity created a live in-memory session.</param>
         /// <returns>SessionInfo.</returns>
         private SessionInfo GetSessionInfo(
             string appName,
@@ -506,7 +515,8 @@ namespace Emby.Server.Implementations.Session
             string deviceId,
             string deviceName,
             string remoteEndPoint,
-            User user)
+            User user,
+            out bool sessionCreated)
         {
             CheckDisposed();
 
@@ -515,7 +525,8 @@ namespace Emby.Server.Implementations.Session
             var key = GetSessionKey(appName, deviceId);
             SessionInfo newSession = CreateSessionInfo(key, appName, appVersion, deviceId, deviceName, remoteEndPoint, user);
             SessionInfo sessionInfo = _activeConnections.GetOrAdd(key, newSession);
-            if (ReferenceEquals(newSession, sessionInfo))
+            sessionCreated = ReferenceEquals(newSession, sessionInfo);
+            if (sessionCreated)
             {
                 OnSessionStarted(newSession);
             }
@@ -1767,6 +1778,7 @@ namespace Emby.Server.Implementations.Session
             var requiresTwoFactorSetup = false;
             var usedTrustedDevice = false;
             var completedDirectTwoFactor = false;
+            var trackDevice = DeviceInventoryPolicy.ShouldTrack(request.App);
             if (enforcePassword)
             {
                 var twoFactorPolicy = user.GetTwoFactorAuthenticationPolicy();
@@ -1778,7 +1790,7 @@ namespace Emby.Server.Implementations.Session
 
                 if (twoFactorEnabled)
                 {
-                    usedTrustedDevice = await _trustedDeviceManager.ValidateAsync(user.Id, request.DeviceCredential, request.DeviceId, request.App, request.AppVersion, request.DeviceName, request.RemoteEndPoint).ConfigureAwait(false);
+                    usedTrustedDevice = trackDevice && await _trustedDeviceManager.ValidateAsync(user.Id, request.DeviceCredential, request.DeviceId, request.App, request.AppVersion, request.DeviceName, request.RemoteEndPoint).ConfigureAwait(false);
                     var twoFactorSecret = user.GetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationSecret);
                     if (!usedTrustedDevice && !TotpHelper.VerifyCode(twoFactorSecret ?? string.Empty, request.TwoFactorCode, DateTimeOffset.UtcNow))
                     {
@@ -1860,7 +1872,7 @@ namespace Emby.Server.Implementations.Session
             {
                 var provenance = completedDirectTwoFactor ? "DirectTwoFactor" : usedTrustedDevice ? "TrustedDevice" : "DirectPassword";
                 await _trustedDeviceManager.SetSessionProvenanceAsync(token, provenance, completedDirectTwoFactor ? DateTime.UtcNow : null).ConfigureAwait(false);
-                if (_config.Configuration.TrustedDevicesEnabled && completedDirectTwoFactor && user.GetInactiveLogoutMinutes() == 0 && !string.IsNullOrWhiteSpace(request.DeviceCredential))
+                if (trackDevice && _config.Configuration.TrustedDevicesEnabled && completedDirectTwoFactor && user.GetInactiveLogoutMinutes() == 0 && !string.IsNullOrWhiteSpace(request.DeviceCredential))
                 {
                     await _trustedDeviceManager.IssueAsync(user.Id, request.DeviceCredential, request.DeviceId, "Direct", user.Id, user.HasPermission(PermissionKind.IsAdministrator)).ConfigureAwait(false);
                 }
@@ -1869,7 +1881,10 @@ namespace Emby.Server.Implementations.Session
             // Maintain a complete authenticated-device inventory. Clients that
             // cannot provide a reusable trust credential are still recorded as
             // Observed so administrators can inspect and log out their sessions.
-            await _trustedDeviceManager.ObserveAsync(user.Id, request.DeviceCredential, request.DeviceId, request.App, request.AppVersion, request.DeviceName, request.Platform, request.OsVersion, request.RemoteEndPoint, completedDirectTwoFactor).ConfigureAwait(false);
+            if (trackDevice)
+            {
+                await _trustedDeviceManager.ObserveAsync(user.Id, request.DeviceCredential, request.DeviceId, request.App, request.AppVersion, request.DeviceName, request.Platform, request.OsVersion, request.RemoteEndPoint, completedDirectTwoFactor).ConfigureAwait(false);
+            }
 
             await _eventManager.PublishAsync(new AuthenticationResultEventArgs(returnResult)).ConfigureAwait(false);
             return returnResult;

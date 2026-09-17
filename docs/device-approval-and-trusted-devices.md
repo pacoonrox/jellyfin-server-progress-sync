@@ -45,6 +45,6 @@ These endpoints require the server-side Administrator role. Queue IP addresses a
 - `POST /DeviceApproval/Queue/{id}/Confirm` accepts `{ Matches, TrustDevice }` and atomically completes the first valid approval.
 - `POST /QuickConnect/Initiate`, `GET /QuickConnect/Connect`, and `POST /Users/AuthenticateWithQuickConnect` provide native-client compatibility.
 - `POST /QuickConnect/Authorize?code=...` approves a legacy request for any authenticated user; it has no administrator-only role requirement.
-- Every successfully authenticated installation is recorded, regardless of its login method, so administrators can see and log out its sessions by device. Existing authenticated sessions are backfilled from Jellyfin's token inventory when this page is queried. Clients without a reusable installation credential remain observed and do not gain a future trusted-device 2FA bypass.
+- Successfully authenticated Jellyfin clients are recorded regardless of login method. A client that was already authenticated before an update is recorded when it next establishes an active session; old token records are never scanned or imported. Seerr-family service connections are excluded. Clients without a reusable installation credential remain observed and do not gain a future trusted-device 2FA bypass.
 
 Old clients can continue normal username/password/TOTP login and can use the legacy Quick Connect code flow. They cannot create trusted status without sending a secure installation credential and explicit opt-in.

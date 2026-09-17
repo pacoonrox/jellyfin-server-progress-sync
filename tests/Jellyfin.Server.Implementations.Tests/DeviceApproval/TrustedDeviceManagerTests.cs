@@ -99,23 +99,17 @@ public sealed class TrustedDeviceManagerTests : IDisposable
         Assert.True(await Validate(user, Credential));
     }
 
-    [Fact]
-    public async Task QueryBackfillsPreviouslyAuthenticatedSessions()
+    [Theory]
+    [InlineData("Seerr")]
+    [InlineData("Jellyseerr")]
+    [InlineData("Overseerr")]
+    public async Task SeerrClientsAreNotObserved(string appName)
     {
-        var user = new User($"user-{Guid.NewGuid():N}", "default", "default");
-        await using (var context = CreateContext())
-        {
-            context.Users.Add(user);
-            context.Devices.Add(new Device(user.Id, "Jellyfin Roku", "3.2.0", "Living Room Roku", "roku-installation"));
-            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
-        }
+        var user = Guid.NewGuid();
 
-        var record = Assert.Single(await _subject.QueryAsync(null, user.Id, null));
+        await _subject.ObserveAsync(user, null, "installation", appName, "2.0", "Service", string.Empty, string.Empty, "192.0.2.1");
 
-        Assert.Equal("roku-installation", record.DeviceId);
-        Assert.Equal("Living Room Roku", record.FriendlyName);
-        Assert.Equal("SessionBackfill", record.Source);
-        Assert.Equal("Observed", record.State);
+        Assert.Empty(await _subject.QueryAsync(null, user, null));
     }
 
     [Theory]

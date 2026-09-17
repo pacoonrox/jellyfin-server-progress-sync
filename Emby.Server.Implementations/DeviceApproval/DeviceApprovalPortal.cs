@@ -151,7 +151,7 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
                 // the approving session. Automatically trust the requesting
                 // installation for the configured period when the account is
                 // eligible; automatic-logout accounts remain administrator-only.
-                if (trustDevice && _configuration.Configuration.TrustedDevicesEnabled && user.GetInactiveLogoutMinutes() == 0)
+                if (trustDevice && DeviceInventoryPolicy.ShouldTrack(request.AppName) && _configuration.Configuration.TrustedDevicesEnabled && user.GetInactiveLogoutMinutes() == 0)
                 {
                     await _trust.IssueAsync(actorUserId, request.DeviceCredential, request.InstallationId, "Portal", actorUserId, user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator)).ConfigureAwait(false);
                 }

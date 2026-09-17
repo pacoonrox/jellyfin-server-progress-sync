@@ -79,6 +79,11 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
 
     public async Task ObserveAsync(Guid userId, string? credential, string installationId, string appName, string appVersion, string deviceName, string platform, string osVersion, string ipAddress, bool directTwoFactorVerified = false)
     {
+        if (!DeviceInventoryPolicy.ShouldTrack(appName))
+        {
+            return;
+        }
+
         var hasCredential = TryHashCredential(credential, out var hash);
 
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
@@ -212,45 +217,6 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
     public async Task<IReadOnlyList<TrustedDeviceDto>> QueryAsync(string? search, Guid? userId, string? state)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-        // Backfill sessions that existed before device inventory tracking was
-        // introduced. The Devices table is the authoritative token inventory,
-        // so this also covers already-signed-in legacy Quick Connect clients.
-        var knownInstallations = (await db.TrustedDevices
-                .Select(x => new { x.UserId, x.InstallationId })
-                .ToListAsync().ConfigureAwait(false))
-            .Select(x => (x.UserId, x.InstallationId))
-            .ToHashSet();
-        var untrackedSessions = await db.Devices
-            .AsNoTracking()
-            .Where(x => !x.UserId.Equals(Guid.Empty) && x.DeviceId != string.Empty)
-            .ToListAsync().ConfigureAwait(false);
-        foreach (var device in untrackedSessions)
-        {
-            if (!knownInstallations.Add((device.UserId, device.DeviceId)))
-            {
-                continue;
-            }
-
-            db.TrustedDevices.Add(new TrustedDevice
-            {
-                UserId = device.UserId,
-                CredentialHash = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
-                InstallationId = Limit(device.DeviceId, 256),
-                FriendlyName = Limit(device.DeviceName, 128),
-                AppName = Limit(device.AppName, 64),
-                AppVersion = Limit(device.AppVersion, 32),
-                Source = "SessionBackfill",
-                State = "Observed",
-                FirstSeenUtc = device.DateCreated,
-                LastSeenUtc = device.DateLastActivity
-            });
-        }
-
-        if (db.ChangeTracker.HasChanges())
-        {
-            await db.SaveChangesAsync().ConfigureAwait(false);
-        }
-
         var expired = await db.TrustedDevices.Where(x => x.State == "Trusted" && x.ExpiresUtc <= DateTime.UtcNow).ToListAsync().ConfigureAwait(false);
         foreach (var item in expired)
         {
@@ -258,7 +224,7 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             db.SecurityAuditRecords.Add(NewAudit("TrustExpired", item.Source, "Success", null, item.UserId, item.Id, false));
         }
         if (expired.Count > 0) await db.SaveChangesAsync().ConfigureAwait(false);
-        var query = db.TrustedDevices.AsNoTracking();
+        var query = db.TrustedDevices.AsNoTracking().Where(x => !EF.Functions.Like(x.AppName, "%seerr%"));
         if (userId.HasValue) query = query.Where(x => x.UserId.Equals(userId.Value));
         if (!string.IsNullOrWhiteSpace(state)) query = query.Where(x => x.State == state);
         if (!string.IsNullOrWhiteSpace(search)) query = query.Where(x => x.FriendlyName.Contains(search) || x.AppName.Contains(search) || x.Platform.Contains(search));
