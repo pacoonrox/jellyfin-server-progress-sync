@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading.Tasks;
+using Jellyfin.Data;
 using Jellyfin.Data.Queries;
 using Jellyfin.Database.Implementations;
 using Jellyfin.Extensions;
@@ -177,13 +178,17 @@ namespace Jellyfin.Server.Implementations.Security
                         }
                     }
 
-                    if ((DateTime.UtcNow - device.DateLastActivity).TotalMinutes > 3)
+                    authInfo.User = _userManager.GetUserById(device.UserId);
+
+                    // Inactivity logout is enforced from this persisted timestamp when no
+                    // in-memory session exists. Flush it more frequently for affected users
+                    // so closing a client or restarting the server does not lose recent activity.
+                    var activityPersistenceMinutes = authInfo.User?.GetInactiveLogoutMinutes() > 0 ? 0.25 : 3;
+                    if ((DateTime.UtcNow - device.DateLastActivity).TotalMinutes > activityPersistenceMinutes)
                     {
                         device.DateLastActivity = DateTime.UtcNow;
                         updateToken = true;
                     }
-
-                    authInfo.User = _userManager.GetUserById(device.UserId);
 
                     if (updateToken)
                     {

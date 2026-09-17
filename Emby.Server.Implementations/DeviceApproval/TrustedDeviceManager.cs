@@ -214,7 +214,7 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         return records
             .OrderBy(x => names.GetValueOrDefault(x.UserId, "Deleted user"), StringComparer.OrdinalIgnoreCase)
             .ThenByDescending(x => x.LastSeenUtc)
-            .Select(x => new TrustedDeviceDto { Id = x.Id, UserId = x.UserId, Username = names.GetValueOrDefault(x.UserId, "Deleted user"), FriendlyName = x.FriendlyName, AppName = x.AppName, AppVersion = x.AppVersion, Platform = x.Platform, OsVersion = x.OsVersion, LastIpAddress = x.LastIpAddress, Source = x.Source, State = x.State, RequiresFreshTwoFactor = x.RequiresFreshTwoFactor, FirstSeenUtc = x.FirstSeenUtc, LastSeenUtc = x.LastSeenUtc, IssuedUtc = x.IssuedUtc, ExpiresUtc = x.ExpiresUtc }).ToArray();
+            .Select(x => new TrustedDeviceDto { Id = x.Id, UserId = x.UserId, DeviceId = x.InstallationId, Username = names.GetValueOrDefault(x.UserId, "Deleted user"), FriendlyName = x.FriendlyName, AppName = x.AppName, AppVersion = x.AppVersion, Platform = x.Platform, OsVersion = x.OsVersion, LastIpAddress = x.LastIpAddress, Source = x.Source, State = x.State, RequiresFreshTwoFactor = x.RequiresFreshTwoFactor, FirstSeenUtc = x.FirstSeenUtc, LastSeenUtc = x.LastSeenUtc, IssuedUtc = x.IssuedUtc, ExpiresUtc = x.ExpiresUtc }).ToArray();
     }
 
     public async Task UpdateAsync(long id, string? friendlyName, DateTime? expiresUtc, Guid actorUserId)

@@ -43,6 +43,7 @@ public sealed class TrustedDeviceDto
 {
     public long Id { get; set; }
     public Guid UserId { get; set; }
+    public string DeviceId { get; set; } = string.Empty;
     public string Username { get; set; } = string.Empty;
     public string FriendlyName { get; set; } = string.Empty;
     public string AppName { get; set; } = string.Empty;

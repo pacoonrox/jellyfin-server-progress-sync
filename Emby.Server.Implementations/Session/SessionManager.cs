@@ -125,6 +125,11 @@ namespace Emby.Server.Implementations.Session
             _shutdownCallback = hostApplicationLifetime.ApplicationStopping.Register(OnApplicationStopping);
 
             _deviceManager.DeviceOptionsUpdated += OnDeviceManagerDeviceOptionsUpdated;
+
+            // Access tokens outlive their in-memory sessions. Keep this check running so
+            // inactivity logout also applies while a client is closed and after sessions
+            // have disappeared from the active connection list.
+            _inactiveLogoutTimer = new Timer(CheckForInactiveLogout, null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
         }
 
         /// <summary>
@@ -623,15 +628,6 @@ namespace Emby.Server.Implementations.Session
             }
         }
 
-        private void StopInactiveLogoutCheckTimer()
-        {
-            if (_inactiveLogoutTimer is not null)
-            {
-                _inactiveLogoutTimer.Dispose();
-                _inactiveLogoutTimer = null;
-            }
-        }
-
         private void StopIdleCheckTimer()
         {
             if (_idleTimer is not null)
@@ -728,26 +724,34 @@ namespace Emby.Server.Implementations.Session
         private async void CheckForInactiveLogout(object state)
         {
             var now = DateTime.UtcNow;
-            var sessionsWithLogoutPolicy = Sessions
-                .Where(i => !i.UserId.IsEmpty())
-                .Select(i => new
+            var devicesWithLogoutPolicy = _deviceManager.GetDevices(new DeviceQuery())
+                .Items
+                .Select(device => new
                 {
-                    Session = i,
-                    User = _userManager.GetUserById(i.UserId)
+                    Device = device,
+                    User = _userManager.GetUserById(device.UserId),
+                    Session = Sessions.FirstOrDefault(session =>
+                        session.UserId.Equals(device.UserId)
+                        && string.Equals(session.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
                 })
-                .Where(i => i.User is not null && i.User.GetInactiveLogoutMinutes() > 0)
+                .Where(item => item.User is not null && item.User.GetInactiveLogoutMinutes() > 0)
                 .ToList();
 
-            foreach (var item in sessionsWithLogoutPolicy)
+            foreach (var item in devicesWithLogoutPolicy)
             {
+                var device = item.Device;
                 var session = item.Session;
 
-                if (session.NowPlayingItem is not null && !session.PlayState.IsPaused)
+                if (session?.NowPlayingItem is not null && !session.PlayState.IsPaused)
                 {
                     continue;
                 }
 
-                var inactiveSince = session.LastPausedDate ?? session.LastActivityDate;
+                // The token activity timestamp is persisted, so this works when the
+                // website/app is closed and across server restarts. A live session can
+                // contain newer activity that has not been flushed to the token yet.
+                var sessionActivity = session?.LastPausedDate ?? session?.LastActivityDate ?? DateTime.MinValue;
+                var inactiveSince = device.DateLastActivity > sessionActivity ? device.DateLastActivity : sessionActivity;
                 var inactiveMinutes = (now - inactiveSince).TotalMinutes;
                 var timeoutMinutes = item.User.GetInactiveLogoutMinutes();
                 if (inactiveMinutes < timeoutMinutes)
@@ -757,33 +761,19 @@ namespace Emby.Server.Implementations.Session
 
                 _logger.LogInformation(
                     "Logging out session {SessionId} for user {UserId} after {InactiveMinutes:N1} inactive minutes.",
-                    session.Id,
-                    session.UserId,
+                    session?.Id ?? device.DeviceId,
+                    device.UserId,
                     inactiveMinutes);
 
-                var devices = _deviceManager.GetDevices(new DeviceQuery
+                try
                 {
-                    DeviceId = session.DeviceId,
-                    UserId = session.UserId
-                });
-
-                foreach (var device in devices.Items)
-                {
-                    try
-                    {
-                        await _trustedDeviceManager.RequireFreshTwoFactorAsync(session.UserId, device.DeviceId).ConfigureAwait(false);
-                        await Logout(device).ConfigureAwait(false);
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogError(ex, "Error logging out inactive session {SessionId}.", session.Id);
-                    }
+                    await _trustedDeviceManager.RequireFreshTwoFactorAsync(device.UserId, device.DeviceId).ConfigureAwait(false);
+                    await Logout(device).ConfigureAwait(false);
                 }
-            }
-
-            if (sessionsWithLogoutPolicy.Count == 0)
-            {
-                StopInactiveLogoutCheckTimer();
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Error logging out inactive device {DeviceId} for user {UserId}.", device.DeviceId, device.UserId);
+                }
             }
         }
 
@@ -1943,6 +1933,7 @@ namespace Emby.Server.Implementations.Session
 
             var sessions = Sessions
                 .Where(i => string.Equals(i.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
+                .Where(i => i.UserId.Equals(device.UserId))
                 .ToList();
 
             foreach (var session in sessions)

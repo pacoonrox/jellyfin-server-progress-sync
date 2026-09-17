@@ -21,6 +21,9 @@ public sealed class DeviceApprovalControllerAuthorizationTests
     [InlineData(nameof(DeviceApprovalController.Prune))]
     [InlineData(nameof(DeviceApprovalController.RevokeUser))]
     [InlineData(nameof(DeviceApprovalController.RevokeAll))]
+    [InlineData(nameof(DeviceApprovalController.LogoutDevice))]
+    [InlineData(nameof(DeviceApprovalController.LogoutUserDevices))]
+    [InlineData(nameof(DeviceApprovalController.LogoutAllUsersDevices))]
     public void TrustedDeviceManagement_IsAdministratorOnly(string methodName)
     {
         var method = typeof(DeviceApprovalController).GetMethods().Single(x => x.Name == methodName);

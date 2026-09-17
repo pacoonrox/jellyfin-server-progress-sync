@@ -6,11 +6,14 @@ using System.Threading.Tasks;
 using Jellyfin.Api.Constants;
 using Jellyfin.Api.Extensions;
 using Jellyfin.Api.Helpers;
+using Jellyfin.Data.Queries;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Common.Net;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.DeviceApproval;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Net;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.DeviceApproval;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -30,11 +33,13 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     private readonly ITrustedDeviceManager _trust;
     private readonly IAuthorizationContext _authorization;
     private readonly IServerConfigurationManager _configuration;
+    private readonly IDeviceManager _devices;
+    private readonly ISessionManager _sessions;
     private readonly ILogger<DeviceApprovalController> _logger;
 
-    public DeviceApprovalController(IDeviceApprovalPortal portal, ITrustedDeviceManager trust, IAuthorizationContext authorization, IServerConfigurationManager configuration, ILogger<DeviceApprovalController> logger)
+    public DeviceApprovalController(IDeviceApprovalPortal portal, ITrustedDeviceManager trust, IAuthorizationContext authorization, IServerConfigurationManager configuration, IDeviceManager devices, ISessionManager sessions, ILogger<DeviceApprovalController> logger)
     {
-        _portal = portal; _trust = trust; _authorization = authorization; _configuration = configuration; _logger = logger;
+        _portal = portal; _trust = trust; _authorization = authorization; _configuration = configuration; _devices = devices; _sessions = sessions; _logger = logger;
     }
 
     [HttpGet("Enabled")]
@@ -161,6 +166,58 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     [HttpDelete("Admin/TrustedDevices")]
     [Authorize(Roles = UserRoles.Administrator)]
     public async Task<ActionResult> RevokeAll() { await _trust.RevokeAllAsync(User.GetUserId(), "Administrator").ConfigureAwait(false); return NoContent(); }
+
+    [HttpPost("Admin/TrustedDevices/{id:long}/Logout")]
+    [Authorize(Roles = UserRoles.Administrator)]
+    public async Task<ActionResult> LogoutDevice([FromRoute] long id)
+    {
+        var record = (await _trust.QueryAsync(null, null, null).ConfigureAwait(false)).FirstOrDefault(x => x.Id == id);
+        if (record is null)
+        {
+            return NotFound();
+        }
+
+        var devices = _devices.GetDevices(new DeviceQuery { UserId = record.UserId, DeviceId = record.DeviceId }).Items;
+        foreach (var device in devices)
+        {
+            await _sessions.Logout(device).ConfigureAwait(false);
+        }
+
+        await _trust.RequireFreshTwoFactorAsync(record.UserId, record.DeviceId).ConfigureAwait(false);
+        await _trust.AuditAsync("AdministratorDeviceLogout", "Administrator", "Success", User.GetUserId(), record.UserId, record.Id, true, $"Logged out {devices.Count} access token(s)").ConfigureAwait(false);
+        return NoContent();
+    }
+
+    [HttpPost("Admin/Users/{userId:guid}/Logout")]
+    [Authorize(Roles = UserRoles.Administrator)]
+    public async Task<ActionResult> LogoutUserDevices([FromRoute] Guid userId)
+    {
+        var devices = _devices.GetDevices(new DeviceQuery { UserId = userId }).Items;
+        foreach (var device in devices)
+        {
+            await _sessions.Logout(device).ConfigureAwait(false);
+        }
+
+        await _trust.RevokeUserAsync(userId, User.GetUserId(), "AdministratorLogout").ConfigureAwait(false);
+        await _trust.AuditAsync("AdministratorUserLogout", "Administrator", "Success", User.GetUserId(), userId, null, true, $"Logged out {devices.Count} access token(s)").ConfigureAwait(false);
+        return NoContent();
+    }
+
+    [HttpPost("Admin/Users/Logout")]
+    [Authorize(Roles = UserRoles.Administrator)]
+    public async Task<ActionResult> LogoutAllUsersDevices()
+    {
+        var devices = _devices.GetDevices(new DeviceQuery()).Items;
+        foreach (var device in devices)
+        {
+            await _sessions.Logout(device).ConfigureAwait(false);
+        }
+
+        var actorUserId = User.GetUserId();
+        await _trust.RevokeAllAsync(actorUserId, "AdministratorLogout").ConfigureAwait(false);
+        await _trust.AuditAsync("AdministratorGlobalLogout", "Administrator", "Success", actorUserId, null, null, true, $"Logged out {devices.Count} access token(s)").ConfigureAwait(false);
+        return NoContent();
+    }
 
     private static string GetConnectionDomain(HttpRequest request)
     {

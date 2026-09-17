@@ -31,6 +31,7 @@ Open **Dashboard → Trusted devices** to:
 - trust a specifically observed user/installation pair, including automatic-logout accounts;
 - rename devices and edit expiration;
 - revoke one device, one user's devices, or all credentials;
+- log out one device, all devices for one user, or every user's devices;
 - review first/last seen, client/platform, trust source/state/times, last IP, and security audit events.
 
 These endpoints require the server-side Administrator role. Queue IP addresses are serialized only for administrators. Regular users have no trusted-device management API.
