@@ -14,7 +14,7 @@ Administrators may mark an observed device as **Never trust**. That state surviv
 
 ## User workflow
 
-After password validation requires 2FA, eligible users see **Trust this device for 30 days**. It is opt-in and unchecked. Accounts with a nonzero inactivity-logout value cannot self-issue trust. They continue to log out on the existing inactivity schedule; an administrator may later trust one observed installation for that account. After an automatic logout, that installation must complete a fresh direct 2FA check once before any administrator-issued bypass can be used again; the password is always required.
+After password validation requires 2FA, eligible users see **Trust this device for 30 days**, checked by default. Accounts with a nonzero inactivity-logout value do not see this control and cannot self-issue trust. They continue to log out on the existing inactivity schedule; an administrator may later trust one observed installation for that account. After an automatic logout, that installation must complete a fresh direct 2FA check once before any administrator-issued bypass can be used again; the password is always required.
 
 **Quick Sign-On** creates an anonymous five-minute request. It sends no username, password, or intended account. Every signed-in user sees the shared queue. Selecting a device opens an explicit approval prompt. Confirming **Approve** signs the device into the approving user's account. **Not this device** returns it to the queue.
 
@@ -45,5 +45,6 @@ These endpoints require the server-side Administrator role. Queue IP addresses a
 - `POST /DeviceApproval/Queue/{id}/Confirm` accepts `{ Matches, TrustDevice }` and atomically completes the first valid approval.
 - `POST /QuickConnect/Initiate`, `GET /QuickConnect/Connect`, and `POST /Users/AuthenticateWithQuickConnect` provide native-client compatibility.
 - `POST /QuickConnect/Authorize?code=...` approves a legacy request for any authenticated user; it has no administrator-only role requirement.
+- Every successfully authenticated installation is recorded, regardless of its login method, so administrators can see and log out its sessions by device. Existing authenticated sessions are backfilled from Jellyfin's token inventory when this page is queried. Clients without a reusable installation credential remain observed and do not gain a future trusted-device 2FA bypass.
 
 Old clients can continue normal username/password/TOTP login and can use the legacy Quick Connect code flow. They cannot create trusted status without sending a secure installation credential and explicit opt-in.

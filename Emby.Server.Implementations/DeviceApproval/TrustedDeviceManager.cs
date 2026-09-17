@@ -79,10 +79,7 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
 
     public async Task ObserveAsync(Guid userId, string? credential, string installationId, string appName, string appVersion, string deviceName, string platform, string osVersion, string ipAddress, bool directTwoFactorVerified = false)
     {
-        if (!TryHashCredential(credential, out var hash))
-        {
-            return;
-        }
+        var hasCredential = TryHashCredential(credential, out var hash);
 
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
         var limitedInstallationId = Limit(installationId, 256);
@@ -99,10 +96,27 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             return;
         }
 
-        var record = await db.TrustedDevices.SingleOrDefaultAsync(x => x.UserId.Equals(userId) && x.CredentialHash == hash).ConfigureAwait(false);
+        var record = hasCredential
+            ? await db.TrustedDevices.SingleOrDefaultAsync(x => x.UserId.Equals(userId) && x.CredentialHash == hash).ConfigureAwait(false)
+            : null;
         if (record is null)
         {
-            record = new TrustedDevice { UserId = userId, CredentialHash = hash, InstallationId = limitedInstallationId, FirstSeenUtc = DateTime.UtcNow, State = "Observed", Source = "Observed" };
+            // Keep one inventory row per observed installation. This also lets a
+            // later login that supplies a real installation credential upgrade a
+            // credential-less observation without duplicating the device.
+            record = await db.TrustedDevices.FirstOrDefaultAsync(x => x.UserId.Equals(userId) && x.InstallationId == limitedInstallationId && x.State == "Observed").ConfigureAwait(false);
+            if (record is not null && hasCredential)
+            {
+                record.CredentialHash = hash;
+            }
+        }
+
+        if (record is null)
+        {
+            // Some clients cannot provide a reusable trust credential. Give the
+            // inventory row an unguessable internal value; it remains Observed and
+            // can be managed/logged out without becoming a 2FA bypass.
+            record = new TrustedDevice { UserId = userId, CredentialHash = hasCredential ? hash : Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), InstallationId = limitedInstallationId, FirstSeenUtc = DateTime.UtcNow, State = "Observed", Source = "Observed" };
             db.TrustedDevices.Add(record);
         }
 
@@ -198,6 +212,45 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
     public async Task<IReadOnlyList<TrustedDeviceDto>> QueryAsync(string? search, Guid? userId, string? state)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        // Backfill sessions that existed before device inventory tracking was
+        // introduced. The Devices table is the authoritative token inventory,
+        // so this also covers already-signed-in legacy Quick Connect clients.
+        var knownInstallations = (await db.TrustedDevices
+                .Select(x => new { x.UserId, x.InstallationId })
+                .ToListAsync().ConfigureAwait(false))
+            .Select(x => (x.UserId, x.InstallationId))
+            .ToHashSet();
+        var untrackedSessions = await db.Devices
+            .AsNoTracking()
+            .Where(x => !x.UserId.Equals(Guid.Empty) && x.DeviceId != string.Empty)
+            .ToListAsync().ConfigureAwait(false);
+        foreach (var device in untrackedSessions)
+        {
+            if (!knownInstallations.Add((device.UserId, device.DeviceId)))
+            {
+                continue;
+            }
+
+            db.TrustedDevices.Add(new TrustedDevice
+            {
+                UserId = device.UserId,
+                CredentialHash = Convert.ToHexString(RandomNumberGenerator.GetBytes(32)),
+                InstallationId = Limit(device.DeviceId, 256),
+                FriendlyName = Limit(device.DeviceName, 128),
+                AppName = Limit(device.AppName, 64),
+                AppVersion = Limit(device.AppVersion, 32),
+                Source = "SessionBackfill",
+                State = "Observed",
+                FirstSeenUtc = device.DateCreated,
+                LastSeenUtc = device.DateLastActivity
+            });
+        }
+
+        if (db.ChangeTracker.HasChanges())
+        {
+            await db.SaveChangesAsync().ConfigureAwait(false);
+        }
+
         var expired = await db.TrustedDevices.Where(x => x.State == "Trusted" && x.ExpiresUtc <= DateTime.UtcNow).ToListAsync().ConfigureAwait(false);
         foreach (var item in expired)
         {

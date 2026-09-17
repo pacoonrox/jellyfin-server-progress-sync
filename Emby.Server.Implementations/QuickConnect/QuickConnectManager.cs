@@ -95,7 +95,9 @@ public sealed class QuickConnectManager : IQuickConnect
             DeviceId = request.DeviceId,
             DeviceName = request.DeviceName,
             App = request.AppName,
-            AppVersion = request.AppVersion
+            AppVersion = request.AppVersion,
+            DeviceCredential = request.Secret,
+            Platform = "Legacy Quick Connect"
         }).ConfigureAwait(false);
 
         request.DateAdded = DateTime.UtcNow.AddMinutes(1);

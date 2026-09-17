@@ -1860,12 +1860,16 @@ namespace Emby.Server.Implementations.Session
             {
                 var provenance = completedDirectTwoFactor ? "DirectTwoFactor" : usedTrustedDevice ? "TrustedDevice" : "DirectPassword";
                 await _trustedDeviceManager.SetSessionProvenanceAsync(token, provenance, completedDirectTwoFactor ? DateTime.UtcNow : null).ConfigureAwait(false);
-                await _trustedDeviceManager.ObserveAsync(user.Id, request.DeviceCredential, request.DeviceId, request.App, request.AppVersion, request.DeviceName, request.Platform, request.OsVersion, request.RemoteEndPoint, completedDirectTwoFactor).ConfigureAwait(false);
                 if (_config.Configuration.TrustedDevicesEnabled && completedDirectTwoFactor && user.GetInactiveLogoutMinutes() == 0 && !string.IsNullOrWhiteSpace(request.DeviceCredential))
                 {
                     await _trustedDeviceManager.IssueAsync(user.Id, request.DeviceCredential, request.DeviceId, "Direct", user.Id, user.HasPermission(PermissionKind.IsAdministrator)).ConfigureAwait(false);
                 }
             }
+
+            // Maintain a complete authenticated-device inventory. Clients that
+            // cannot provide a reusable trust credential are still recorded as
+            // Observed so administrators can inspect and log out their sessions.
+            await _trustedDeviceManager.ObserveAsync(user.Id, request.DeviceCredential, request.DeviceId, request.App, request.AppVersion, request.DeviceName, request.Platform, request.OsVersion, request.RemoteEndPoint, completedDirectTwoFactor).ConfigureAwait(false);
 
             await _eventManager.PublishAsync(new AuthenticationResultEventArgs(returnResult)).ConfigureAwait(false);
             return returnResult;

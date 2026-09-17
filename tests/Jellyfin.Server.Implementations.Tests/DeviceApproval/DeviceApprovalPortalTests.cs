@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.DeviceApproval;
+using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Configuration;
@@ -80,6 +81,29 @@ public sealed class DeviceApprovalPortalTests
         Assert.Equal(DeviceApprovalState.Selected, selected.State);
         Assert.Null(await _subject.ConfirmAsync(id, actor, "direct", false, false));
         Assert.Equal(DeviceApprovalState.Pending, Assert.Single(_subject.GetQueue(false)).State);
+    }
+
+    [Fact]
+    public async Task Confirmation_IssuesTrustOnlyWhenSelected()
+    {
+        var user = new User("approval-user", "default", "default");
+        var users = new Mock<IUserManager>();
+        users.Setup(x => x.GetUserById(user.Id)).Returns(user);
+        var sessions = new Mock<ISessionManager>();
+        sessions.Setup(x => x.AuthenticatePortalSession(It.IsAny<AuthenticationRequest>())).ReturnsAsync(new AuthenticationResult { AccessToken = "token" });
+        var configuration = new Mock<IServerConfigurationManager>();
+        configuration.SetupGet(x => x.Configuration).Returns(new ServerConfiguration { DeviceApprovalAvailable = true, TrustedDevicesEnabled = true });
+        var subject = new DeviceApprovalPortal(configuration.Object, _trust.Object, sessions.Object, users.Object, _time);
+
+        var first = await subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
+        await subject.SelectAsync(first.Id, user.Id, "direct");
+        await subject.ConfirmAsync(first.Id, user.Id, "direct", true, false);
+        _trust.Verify(x => x.IssueAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<bool>(), It.IsAny<DateTime?>()), Times.Never);
+
+        var second = await subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
+        await subject.SelectAsync(second.Id, user.Id, "direct");
+        await subject.ConfirmAsync(second.Id, user.Id, "direct", true, true);
+        _trust.Verify(x => x.IssueAsync(user.Id, It.IsAny<string>(), "installation-a", "Portal", user.Id, false, null), Times.Once);
     }
 
     [Fact]

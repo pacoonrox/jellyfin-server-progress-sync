@@ -65,6 +65,7 @@ public sealed class QuickConnectManagerTests
         Assert.True(_subject.CheckRequestStatus(request.Secret).Authenticated);
         Assert.Equal("token", _subject.GetAuthorizedRequest(request.Secret).AccessToken);
         _sessions.Verify(x => x.AuthenticatePortalSession(It.Is<AuthenticationRequest>(r => r.UserId.Equals(Guid.Parse(userId)))), Times.Once);
+        _sessions.Verify(x => x.AuthenticatePortalSession(It.Is<AuthenticationRequest>(r => r.DeviceCredential == request.Secret && r.Platform == "Legacy Quick Connect")), Times.Once);
     }
 
     [Fact]
