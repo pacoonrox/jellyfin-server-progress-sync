@@ -136,40 +136,41 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
 
         if (record is null && !string.IsNullOrWhiteSpace(deviceName))
         {
-            // Some clients (notably certain mobile apps) do not persist a
+            // Some clients (notably certain mobile apps, and any device that
+            // was trust-approved via the dashboard/portal without ever
+            // establishing a real per-launch credential) do not persist a
             // stable installation id across launches and present a brand
             // new one every time, so the exact-id lookup above never hits
             // and this would otherwise pile up a fresh "Observed" row per
-            // launch forever. A real trust credential is still matched
-            // exactly further up, so this only affects the passive
-            // inventory list: fold a launch with no id match into the most
-            // recently seen row for the same (user, device name, app,
-            // platform) signature instead of growing an ever-increasing
-            // pile of one-shot rows for what is almost certainly the same
-            // physical device. "Revoked"/"Expired" are included so a device
-            // whose old installation id got revoked doesn't immediately
-            // spawn a brand-new duplicate on its very next launch. "Never"
-            // stays excluded so it keeps blocking future trust, and
-            // "Trusted" stays excluded deliberately: rebinding an *active*
-            // trusted row's InstallationId off nothing but a spoofable
-            // name/app/platform match (no credential proof) would let
-            // anyone claiming the same signature hijack that row's
-            // identity, even though they still couldn't pass ValidateAsync
-            // without the real credential.
+            // launch forever -- including right next to a row that is
+            // already "Trusted", since ObserveAsync only runs after a
+            // session is already authenticated as this user. "Trusted" must
+            // stay in the candidate set here: it is reached by exactly the
+            // same reopen that would otherwise duplicate it, and rebinding
+            // its InstallationId does not create any bypass, because
+            // ValidateAsync's 2FA-skip additionally requires an exact
+            // CredentialHash match, never granted by this signature lookup
+            // alone (see the guard below). Only "Never" stays excluded, so
+            // it keeps blocking future trust in isolation.
             var limitedDeviceName = Limit(deviceName, 128);
             var limitedAppName = Limit(appName, 64);
             var limitedPlatform = Limit(platform, 64);
             record = await db.TrustedDevices
-                .Where(x => x.UserId.Equals(userId)
-                    && (x.State == "Observed" || x.State == "Revoked" || x.State == "Expired")
+                .Where(x => x.UserId.Equals(userId) && x.State != "Never"
                     && x.FriendlyName == limitedDeviceName && x.AppName == limitedAppName && x.Platform == limitedPlatform)
                 .OrderByDescending(x => x.LastSeenUtc)
                 .FirstOrDefaultAsync().ConfigureAwait(false);
             if (record is not null)
             {
                 record.InstallationId = installId;
-                if (hasCredential)
+                if (hasCredential && record.State != "Trusted")
                 {
+                    // Never let an unverified signature match hand a Trusted
+                    // row a new CredentialHash: that field (together with
+                    // InstallationId) is what ValidateAsync trusts to skip
+                    // 2FA, so only IssueAsync -- which requires proving the
+                    // credential, not just guessing a device name -- may
+                    // change it while a row is actively Trusted.
                     record.CredentialHash = hash;
                 }
             }
