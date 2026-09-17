@@ -758,6 +758,15 @@ namespace Emby.Server.Implementations.Session
                     continue;
                 }
 
+                // An administrator-granted trust is an explicit exemption from this
+                // policy for that one device; self-granted trust cannot reach this
+                // point at all, since a user with idle logout enabled is never
+                // allowed to self-trust a device in the first place.
+                if (await _trustedDeviceManager.IsAdministratorTrustedAsync(device.UserId, device.DeviceId).ConfigureAwait(false))
+                {
+                    continue;
+                }
+
                 // The token activity timestamp is persisted, so this works when the
                 // website/app is closed and across server restarts. A live session can
                 // contain newer activity that has not been flushed to the token yet.

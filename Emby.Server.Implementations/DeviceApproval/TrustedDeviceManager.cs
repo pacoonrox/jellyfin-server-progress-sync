@@ -290,6 +290,24 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         return true;
     }
 
+    public async Task<bool> IsAdministratorTrustedAsync(Guid userId, string installationId)
+    {
+        if (!_configuration.Configuration.TrustedDevicesEnabled)
+        {
+            return false;
+        }
+
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        return await db.TrustedDevices.AnyAsync(x =>
+            x.UserId.Equals(userId)
+            && x.InstallationId == installationId
+            && x.State == "Trusted"
+            && x.Source == "Administrator"
+            && x.RevokedUtc == null
+            && !x.RequiresFreshTwoFactor
+            && x.ExpiresUtc > DateTime.UtcNow).ConfigureAwait(false);
+    }
+
     public async Task<IReadOnlyList<TrustedDeviceDto>> QueryAsync(string? search, Guid? userId, string? state)
     {
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
