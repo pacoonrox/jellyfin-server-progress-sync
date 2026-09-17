@@ -100,6 +100,18 @@ public sealed class ReviewsManager : IReviewsManager
     }
 
     /// <inheritdoc />
+    public IReadOnlyList<ReviewDto> GetAllReviews()
+    {
+        lock (_syncLock)
+        {
+            return Configuration.Reviews
+                .OrderByDescending(r => r.CreatedAt)
+                .Select(ToDto)
+                .ToArray();
+        }
+    }
+
+    /// <inheritdoc />
     public IReadOnlyList<ItemRatingSummaryDto> GetTopRated(int minRatingCount, int limit)
     {
         lock (_syncLock)
@@ -116,12 +128,17 @@ public sealed class ReviewsManager : IReviewsManager
     }
 
     /// <inheritdoc />
-    public ReviewDto UpsertReview(Guid itemId, Guid userId, string? userName, int? rating, string? comment, bool containsSpoilers)
+    public ReviewDto UpsertReview(Guid itemId, Guid userId, string? userName, double? rating, string? comment, bool containsSpoilers)
     {
         if (rating is < 1 or > 10)
         {
             throw new ArgumentOutOfRangeException(nameof(rating), "Rating must be between 1 and 10.");
         }
+
+        // Truncate (not round) to 2 decimal places so stored precision is predictable.
+        var truncatedRating = rating.HasValue
+            ? Math.Truncate(rating.Value * 100) / 100
+            : (double?)null;
 
         lock (_syncLock)
         {
@@ -134,7 +151,7 @@ public sealed class ReviewsManager : IReviewsManager
             }
 
             entry.UserName = userName;
-            entry.Rating = rating;
+            entry.Rating = truncatedRating;
             entry.Comment = string.IsNullOrWhiteSpace(comment) ? null : comment.Trim();
             entry.ContainsSpoilers = containsSpoilers;
             entry.UpdatedAt = now;

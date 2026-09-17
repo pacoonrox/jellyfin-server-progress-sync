@@ -23,9 +23,10 @@ public class ReviewDto
     public string? UserName { get; set; }
 
     /// <summary>
-    /// Gets or sets the rating from 1-10, or null for a comment-only review.
+    /// Gets or sets the rating from 1-10, or null for a comment-only review. Precision is
+    /// truncated to 2 decimal places.
     /// </summary>
-    public int? Rating { get; set; }
+    public double? Rating { get; set; }
 
     /// <summary>
     /// Gets or sets the free-text comment, or null for a rating-only review.

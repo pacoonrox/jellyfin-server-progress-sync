@@ -45,6 +45,12 @@ public interface IReviewsManager
     IReadOnlyList<ReviewDto> GetReviewsByUser(Guid userId);
 
     /// <summary>
+    /// Gets every review in the system, across all items and users. Intended for administrative moderation.
+    /// </summary>
+    /// <returns>Every review, newest first.</returns>
+    IReadOnlyList<ReviewDto> GetAllReviews();
+
+    /// <summary>
     /// Gets the item ids with the highest average rating.
     /// </summary>
     /// <param name="minRatingCount">The minimum number of ratings an item must have to be included.</param>
@@ -58,11 +64,11 @@ public interface IReviewsManager
     /// <param name="itemId">The item id.</param>
     /// <param name="userId">The user id.</param>
     /// <param name="userName">The user name, stored for display.</param>
-    /// <param name="rating">The rating from 1-10, or null to leave/keep it unset.</param>
+    /// <param name="rating">The rating from 1-10, or null to leave/keep it unset. Truncated to 2 decimal places.</param>
     /// <param name="comment">The comment text, or null to leave/keep it unset.</param>
     /// <param name="containsSpoilers">Whether the comment contains spoilers.</param>
     /// <returns>The saved review.</returns>
-    ReviewDto UpsertReview(Guid itemId, Guid userId, string? userName, int? rating, string? comment, bool containsSpoilers);
+    ReviewDto UpsertReview(Guid itemId, Guid userId, string? userName, double? rating, string? comment, bool containsSpoilers);
 
     /// <summary>
     /// Deletes a user's review for an item.

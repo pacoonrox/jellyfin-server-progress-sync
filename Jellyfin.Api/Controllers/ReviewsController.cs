@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using Jellyfin.Api.Extensions;
+using MediaBrowser.Common.Api;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Reviews;
 using Microsoft.AspNetCore.Authorization;
@@ -104,6 +105,16 @@ public class ReviewsController : BaseJellyfinApiController
         => Ok(_reviewsManager.GetReviewsByUser(User.GetUserId()));
 
     /// <summary>
+    /// Gets every review in the system, across all users and items. Requires administrator access.
+    /// </summary>
+    /// <returns>Every review, newest first.</returns>
+    [HttpGet("All")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<IReadOnlyList<ReviewDto>> GetAllReviews()
+        => Ok(_reviewsManager.GetAllReviews());
+
+    /// <summary>
     /// Creates or updates the calling user's review for an item.
     /// </summary>
     /// <param name="itemId">The item id.</param>
@@ -134,4 +145,17 @@ public class ReviewsController : BaseJellyfinApiController
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult DeleteReview([FromRoute, Required] Guid itemId)
         => _reviewsManager.DeleteReview(itemId, User.GetUserId()) ? NoContent() : NotFound();
+
+    /// <summary>
+    /// Deletes another user's review for an item. Requires administrator access.
+    /// </summary>
+    /// <param name="itemId">The item id.</param>
+    /// <param name="userId">The id of the user whose review should be deleted.</param>
+    /// <returns>No content.</returns>
+    [HttpDelete("Items/{itemId}/Users/{userId}")]
+    [Authorize(Policy = Policies.RequiresElevation)]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult DeleteReviewAsAdmin([FromRoute, Required] Guid itemId, [FromRoute, Required] Guid userId)
+        => _reviewsManager.DeleteReview(itemId, userId) ? NoContent() : NotFound();
 }
