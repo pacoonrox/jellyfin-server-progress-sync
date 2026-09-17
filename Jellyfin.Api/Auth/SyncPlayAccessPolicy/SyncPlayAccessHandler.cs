@@ -2,6 +2,7 @@ using System.Threading.Tasks;
 using Jellyfin.Api.Extensions;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Extensions;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.SyncPlay;
@@ -34,6 +35,15 @@ namespace Jellyfin.Api.Auth.SyncPlayAccessPolicy
         protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, SyncPlayAccessRequirement requirement)
         {
             var userId = context.User.GetUserId();
+            if (userId.IsEmpty())
+            {
+                // No UserId claim on the principal (e.g. an expired/invalidated token, such as
+                // right after an admin or idle logout). Leave the requirement unmet instead of
+                // calling GetUserById(Guid.Empty), which throws ArgumentException and turns a
+                // clean 401/403 into an unhandled 500 for every request already in flight.
+                return Task.CompletedTask;
+            }
+
             var user = _userManager.GetUserById(userId);
             if (user is null)
             {

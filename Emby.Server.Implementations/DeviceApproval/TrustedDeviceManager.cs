@@ -87,8 +87,15 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         var hasCredential = TryHashCredential(credential, out var hash);
 
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-        var limitedInstallationId = Limit(installationId, 256);
-        var neverRecord = await db.TrustedDevices.FirstOrDefaultAsync(x => x.UserId.Equals(userId) && x.InstallationId == limitedInstallationId && x.State == "Never").ConfigureAwait(false);
+        // Do not truncate this: it must match Device.DeviceId exactly (see
+        // SessionManager.GetAuthorizationToken / DeviceManager), which is
+        // stored without any length limit. Truncating it here silently
+        // broke the admin "log out device" lookup for any installation id
+        // longer than the old 256-character cap, since it could no longer
+        // find the matching, untruncated row in the live device/session
+        // registry.
+        var installId = installationId ?? string.Empty;
+        var neverRecord = await db.TrustedDevices.FirstOrDefaultAsync(x => x.UserId.Equals(userId) && x.InstallationId == installId && x.State == "Never").ConfigureAwait(false);
         if (neverRecord is not null)
         {
             neverRecord.LastSeenUtc = DateTime.UtcNow;
@@ -106,12 +113,23 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             : null;
         if (record is null)
         {
-            // Keep one inventory row per observed installation. This also lets a
-            // later login that supplies a real installation credential upgrade a
-            // credential-less observation without duplicating the device.
-            record = await db.TrustedDevices.FirstOrDefaultAsync(x => x.UserId.Equals(userId) && x.InstallationId == limitedInstallationId && x.State == "Observed").ConfigureAwait(false);
-            if (record is not null && hasCredential)
+            // Keep one inventory row per installation id, regardless of its
+            // current trust state. Restricting this fallback to State ==
+            // "Observed" let every plain session-tracking call (no reusable
+            // credential, e.g. LogSessionActivity) spawn a second "Observed"
+            // row next to a device that was already Trusted, duplicating it
+            // in the admin list. Only "Never" is excluded: that state must
+            // stay isolated so it keeps blocking future trust for this id.
+            record = await db.TrustedDevices
+                .Where(x => x.UserId.Equals(userId) && x.InstallationId == installId && x.State != "Never")
+                .OrderByDescending(x => x.LastSeenUtc)
+                .FirstOrDefaultAsync().ConfigureAwait(false);
+            if (record is not null && hasCredential && record.State == "Observed" && record.CredentialHash != hash)
             {
+                // Only an Observed row's identity is safe to adopt a new
+                // credential hash here; a Trusted/Revoked/Expired row's hash
+                // is authoritative for ValidateAsync and must only change
+                // through IssueAsync.
                 record.CredentialHash = hash;
             }
         }
@@ -121,7 +139,7 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             // Some clients cannot provide a reusable trust credential. Give the
             // inventory row an unguessable internal value; it remains Observed and
             // can be managed/logged out without becoming a 2FA bypass.
-            record = new TrustedDevice { UserId = userId, CredentialHash = hasCredential ? hash : Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), InstallationId = limitedInstallationId, FirstSeenUtc = DateTime.UtcNow, State = "Observed", Source = "Observed" };
+            record = new TrustedDevice { UserId = userId, CredentialHash = hasCredential ? hash : Convert.ToHexString(RandomNumberGenerator.GetBytes(32)), InstallationId = installId, FirstSeenUtc = DateTime.UtcNow, State = "Observed", Source = "Observed" };
             db.TrustedDevices.Add(record);
         }
 
@@ -147,8 +165,11 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         }
 
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-        var limitedInstallationId = Limit(installationId, 256);
-        var neverRecord = await db.TrustedDevices.FirstOrDefaultAsync(x => x.UserId.Equals(userId) && x.InstallationId == limitedInstallationId && x.State == "Never").ConfigureAwait(false);
+        // See the matching comment in ObserveAsync: this must not be
+        // truncated, or it stops matching the untruncated Device.DeviceId
+        // used by the live session registry that admin "log out" acts on.
+        var installId = installationId ?? string.Empty;
+        var neverRecord = await db.TrustedDevices.FirstOrDefaultAsync(x => x.UserId.Equals(userId) && x.InstallationId == installId && x.State == "Never").ConfigureAwait(false);
         if (neverRecord is not null)
         {
             neverRecord.LastSeenUtc = DateTime.UtcNow;
@@ -160,7 +181,19 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         var record = await db.TrustedDevices.SingleOrDefaultAsync(x => x.UserId.Equals(userId) && x.CredentialHash == hash).ConfigureAwait(false);
         if (record is null)
         {
-            record = new TrustedDevice { UserId = userId, CredentialHash = hash, InstallationId = limitedInstallationId, FirstSeenUtc = DateTime.UtcNow, LastSeenUtc = DateTime.UtcNow };
+            // Reuse the existing inventory row for this installation id if
+            // one exists (e.g. an Observed row, or a Trusted row whose
+            // client presented a new credential after clearing storage)
+            // instead of adding a second "device" for something Jellyfin
+            // already tracks.
+            record = await db.TrustedDevices
+                .Where(x => x.UserId.Equals(userId) && x.InstallationId == installId && x.State != "Never")
+                .OrderByDescending(x => x.LastSeenUtc)
+                .FirstOrDefaultAsync().ConfigureAwait(false);
+        }
+        if (record is null)
+        {
+            record = new TrustedDevice { UserId = userId, CredentialHash = hash, InstallationId = installId, FirstSeenUtc = DateTime.UtcNow, LastSeenUtc = DateTime.UtcNow };
             db.TrustedDevices.Add(record);
         }
         else if (string.Equals(record.State, "Never", StringComparison.Ordinal))
@@ -172,7 +205,8 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         }
 
         var now = DateTime.UtcNow;
-        record.InstallationId = limitedInstallationId;
+        record.CredentialHash = hash;
+        record.InstallationId = installId;
         record.Source = Limit(source, 32);
         record.State = "Trusted";
         record.IssuedUtc = now;
@@ -224,6 +258,7 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             db.SecurityAuditRecords.Add(NewAudit("TrustExpired", item.Source, "Success", null, item.UserId, item.Id, false));
         }
         if (expired.Count > 0) await db.SaveChangesAsync().ConfigureAwait(false);
+        await MergeDuplicateInstallationsAsync(db).ConfigureAwait(false);
         var query = db.TrustedDevices.AsNoTracking().Where(x => !EF.Functions.Like(x.AppName, "%seerr%"));
         if (userId.HasValue) query = query.Where(x => x.UserId.Equals(userId.Value));
         if (!string.IsNullOrWhiteSpace(state)) query = query.Where(x => x.State == state);
@@ -327,6 +362,78 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         foreach (var record in records) { record.State = "Revoked"; record.RevokedUtc = DateTime.UtcNow; }
         db.SecurityAuditRecords.Add(NewAudit(userId.HasValue ? "UserTrustRevokedAll" : "GlobalTrustRevokedAll", source, "Success", actorUserId, userId, null, actorUserId.HasValue, $"Revoked {records.Count} credentials"));
         await db.SaveChangesAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Folds pre-existing duplicate inventory rows (same user + installation id, e.g. created by
+    /// the historical bug where a session-tracking observation without a reusable credential could
+    /// spawn a second "Observed" row next to an already-Trusted device) into a single row so the
+    /// admin device list shows one entry per physical device.
+    /// </summary>
+    private async Task MergeDuplicateInstallationsAsync(JellyfinDbContext db)
+    {
+        var duplicateKeys = await db.TrustedDevices
+            .Where(x => x.State != "Never")
+            .GroupBy(x => new { x.UserId, x.InstallationId })
+            .Where(g => g.Count() > 1)
+            .Select(g => new { g.Key.UserId, g.Key.InstallationId })
+            .ToListAsync().ConfigureAwait(false);
+
+        if (duplicateKeys.Count == 0)
+        {
+            return;
+        }
+
+        var statePriority = new Dictionary<string, int> { ["Trusted"] = 0, ["Observed"] = 1, ["Expired"] = 2, ["Revoked"] = 3 };
+        var changed = false;
+
+        foreach (var key in duplicateKeys)
+        {
+            var records = await db.TrustedDevices
+                .Where(x => x.UserId.Equals(key.UserId) && x.InstallationId == key.InstallationId && x.State != "Never")
+                .ToListAsync().ConfigureAwait(false);
+            if (records.Count < 2) continue;
+
+            var primary = records
+                .OrderBy(x => statePriority.GetValueOrDefault(x.State, 9))
+                .ThenByDescending(x => x.LastSeenUtc)
+                .First();
+
+            foreach (var duplicate in records.Where(x => x.Id != primary.Id))
+            {
+                if (string.IsNullOrWhiteSpace(primary.FriendlyName) && !string.IsNullOrWhiteSpace(duplicate.FriendlyName))
+                {
+                    primary.FriendlyName = duplicate.FriendlyName;
+                }
+                if (duplicate.FirstSeenUtc < primary.FirstSeenUtc)
+                {
+                    primary.FirstSeenUtc = duplicate.FirstSeenUtc;
+                }
+                if (duplicate.LastSeenUtc > primary.LastSeenUtc)
+                {
+                    primary.LastSeenUtc = duplicate.LastSeenUtc;
+                    primary.LastIpAddress = duplicate.LastIpAddress;
+                    primary.AppName = duplicate.AppName;
+                    primary.AppVersion = duplicate.AppVersion;
+                    primary.Platform = duplicate.Platform;
+                    primary.OsVersion = duplicate.OsVersion;
+                }
+                if (duplicate.RequiresFreshTwoFactor)
+                {
+                    // Never silently drop a pending "needs fresh 2FA" requirement when folding rows together.
+                    primary.RequiresFreshTwoFactor = true;
+                }
+
+                db.SecurityAuditRecords.Add(NewAudit("TrustedDeviceDeduplicated", "System", "Merged", null, primary.UserId, primary.Id, false, $"Merged duplicate row {duplicate.Id} ({duplicate.State}) into {primary.Id} ({primary.State}) for installation {primary.InstallationId}"));
+                db.TrustedDevices.Remove(duplicate);
+                changed = true;
+            }
+        }
+
+        if (changed)
+        {
+            await db.SaveChangesAsync().ConfigureAwait(false);
+        }
     }
 
     public async Task AuditAsync(string eventName, string source, string result, Guid? actorUserId, Guid? targetUserId, long? deviceId, bool administrator, string detail = "")

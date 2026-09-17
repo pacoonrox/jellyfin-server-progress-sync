@@ -13,6 +13,14 @@ public class TrustedDevice
     public long Id { get; set; }
     public Guid UserId { get; set; }
     [MaxLength(64)] public string CredentialHash { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets the client-supplied installation id. Must match <c>Device.DeviceId</c>
+    /// (unbounded, never truncated) exactly so trusted-device rows can be correlated with the
+    /// live session/device registry for admin logout. The 256 figure below is informational only
+    /// under the SQLite provider (not enforced at write time); application code must not truncate
+    /// this value to it.
+    /// </summary>
     [MaxLength(256)] public string InstallationId { get; set; } = string.Empty;
     [MaxLength(128)] public string FriendlyName { get; set; } = string.Empty;
     [MaxLength(64)] public string AppName { get; set; } = string.Empty;
