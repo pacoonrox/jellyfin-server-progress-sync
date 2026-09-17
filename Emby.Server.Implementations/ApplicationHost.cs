@@ -32,6 +32,7 @@ using Emby.Server.Implementations.Localization;
 using Emby.Server.Implementations.Playlists;
 using Emby.Server.Implementations.Plugins;
 using Emby.Server.Implementations.ProgressSync;
+using Emby.Server.Implementations.Reviews;
 using Emby.Server.Implementations.ScheduledTasks;
 using Emby.Server.Implementations.Serialization;
 using Emby.Server.Implementations.Session;
@@ -78,6 +79,7 @@ using MediaBrowser.Controller.Playlists;
 using MediaBrowser.Controller.ProgressSync;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Controller.Resolvers;
+using MediaBrowser.Controller.Reviews;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.Sorting;
 using MediaBrowser.Controller.Subtitles;
@@ -551,6 +553,8 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<IUserDataManager, UserDataManager>();
             serviceCollection.AddSingleton<ProgressSyncManager>();
             serviceCollection.AddSingleton<IProgressSyncManager>(sp => sp.GetRequiredService<ProgressSyncManager>());
+            serviceCollection.AddSingleton<ReviewsManager>();
+            serviceCollection.AddSingleton<IReviewsManager>(sp => sp.GetRequiredService<ReviewsManager>());
 
             serviceCollection.AddSingleton<BaseItemRepository>();
             serviceCollection.AddSingleton<IItemRepository>(sp => sp.GetRequiredService<BaseItemRepository>());
