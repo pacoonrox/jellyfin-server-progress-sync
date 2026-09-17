@@ -134,6 +134,36 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             }
         }
 
+        if (record is null && !string.IsNullOrWhiteSpace(deviceName))
+        {
+            // Some clients (notably certain mobile apps) do not persist a
+            // stable installation id across launches and present a brand
+            // new one every time, so the exact-id lookup above never hits
+            // and this would otherwise pile up a fresh "Observed" row per
+            // launch forever. A real trust credential is still matched
+            // exactly further up, so this only affects the passive
+            // inventory list: fold a launch with no id match into the most
+            // recently seen still-Observed row for the same
+            // (user, device name, app, platform) signature instead of
+            // growing an ever-increasing pile of one-shot rows for what is
+            // almost certainly the same physical device.
+            var limitedDeviceName = Limit(deviceName, 128);
+            var limitedAppName = Limit(appName, 64);
+            var limitedPlatform = Limit(platform, 64);
+            record = await db.TrustedDevices
+                .Where(x => x.UserId.Equals(userId) && x.State == "Observed" && x.FriendlyName == limitedDeviceName && x.AppName == limitedAppName && x.Platform == limitedPlatform)
+                .OrderByDescending(x => x.LastSeenUtc)
+                .FirstOrDefaultAsync().ConfigureAwait(false);
+            if (record is not null)
+            {
+                record.InstallationId = installId;
+                if (hasCredential)
+                {
+                    record.CredentialHash = hash;
+                }
+            }
+        }
+
         if (record is null)
         {
             // Some clients cannot provide a reusable trust credential. Give the
