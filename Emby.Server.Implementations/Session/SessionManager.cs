@@ -735,6 +735,13 @@ namespace Emby.Server.Implementations.Session
         private async void CheckForInactiveLogout(object state)
         {
             var now = DateTime.UtcNow;
+            var timeoutMinutes = _config.Configuration.InactiveLogoutMinutes;
+            if (timeoutMinutes <= 0)
+            {
+                return;
+            }
+
+            var logoutScope = _config.Configuration.InactiveLogoutScope;
             var usersLoggedOut = new HashSet<Guid>();
             var devicesWithLogoutPolicy = _deviceManager.GetDevices(new DeviceQuery())
                 .Items
@@ -746,7 +753,7 @@ namespace Emby.Server.Implementations.Session
                         session.UserId.Equals(device.UserId)
                         && string.Equals(session.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
                 })
-                .Where(item => item.User is not null && item.User.GetInactiveLogoutMinutes() > 0)
+                .Where(item => item.User is not null)
                 .ToList();
 
             foreach (var item in devicesWithLogoutPolicy)
@@ -779,14 +786,13 @@ namespace Emby.Server.Implementations.Session
                 var sessionActivity = session?.LastPausedDate ?? session?.LastActivityDate ?? DateTime.MinValue;
                 var inactiveSince = device.DateLastActivity > sessionActivity ? device.DateLastActivity : sessionActivity;
                 var inactiveMinutes = (now - inactiveSince).TotalMinutes;
-                var timeoutMinutes = item.User.GetInactiveLogoutMinutes();
                 if (inactiveMinutes < timeoutMinutes)
                 {
                     continue;
                 }
 
                 await LogoutInactiveDevices(item.User, device, inactiveMinutes).ConfigureAwait(false);
-                if (item.User.GetInactiveLogoutScope() == InactiveLogoutScope.User)
+                if (logoutScope != InactiveLogoutScope.Device)
                 {
                     usersLoggedOut.Add(device.UserId);
                 }
@@ -795,7 +801,7 @@ namespace Emby.Server.Implementations.Session
 
         private async Task LogoutInactiveDevices(User user, Device inactiveDevice, double? inactiveMinutes = null)
         {
-            var scope = user.GetInactiveLogoutScope();
+            var scope = _config.Configuration.InactiveLogoutScope;
             var query = new DeviceQuery { UserId = user.Id };
             if (scope == InactiveLogoutScope.Device)
             {
@@ -803,6 +809,13 @@ namespace Emby.Server.Implementations.Session
             }
 
             var devices = _deviceManager.GetDevices(query).Items;
+            if (scope == InactiveLogoutScope.UserExceptDevice)
+            {
+                devices = devices
+                    .Where(device => !string.Equals(device.DeviceId, inactiveDevice.DeviceId, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+            }
+
             _logger.LogInformation(
                 "Logging out {DeviceCount} access token(s) for inactive device {DeviceId} and user {UserId} with scope {InactiveLogoutScope} after {InactiveMinutes:N1} inactive minutes.",
                 devices.Count,
@@ -1867,7 +1880,7 @@ namespace Emby.Server.Implementations.Session
                         {
                             User = _userManager.GetUserDto(user, request.RemoteEndPoint),
                             RequiresTwoFactorAuthentication = true,
-                            CanTrustDevice = _config.Configuration.TrustedDevicesEnabled && user.GetInactiveLogoutMinutes() == 0,
+                            CanTrustDevice = _config.Configuration.TrustedDevicesEnabled && _config.Configuration.InactiveLogoutMinutes == 0,
                             TrustedDeviceDefaultDays = _config.Configuration.TrustedDeviceDefaultDays,
                             ServerId = _appHost.SystemId
                         };
@@ -1914,7 +1927,7 @@ namespace Emby.Server.Implementations.Session
             {
                 var provenance = completedDirectTwoFactor ? "DirectTwoFactor" : usedTrustedDevice ? "TrustedDevice" : "DirectPassword";
                 await _trustedDeviceManager.SetSessionProvenanceAsync(token, provenance, completedDirectTwoFactor ? DateTime.UtcNow : null).ConfigureAwait(false);
-                if (trackDevice && _config.Configuration.TrustedDevicesEnabled && completedDirectTwoFactor && user.GetInactiveLogoutMinutes() == 0 && !string.IsNullOrWhiteSpace(request.DeviceCredential))
+                if (trackDevice && _config.Configuration.TrustedDevicesEnabled && completedDirectTwoFactor && _config.Configuration.InactiveLogoutMinutes == 0 && !string.IsNullOrWhiteSpace(request.DeviceCredential))
                 {
                     await _trustedDeviceManager.IssueAsync(user.Id, request.DeviceCredential, request.DeviceId, "Direct", user.Id, user.HasPermission(PermissionKind.IsAdministrator)).ConfigureAwait(false);
                 }
@@ -2011,7 +2024,7 @@ namespace Emby.Server.Implementations.Session
         }
 
         /// <inheritdoc />
-        public async Task LogoutInactive(string accessToken)
+        public async Task<bool> LogoutInactive(string accessToken)
         {
             CheckDisposed();
 
@@ -2025,21 +2038,22 @@ namespace Emby.Server.Implementations.Session
                 }).Items.FirstOrDefault();
             if (device is null)
             {
-                return;
+                return false;
             }
 
             var user = _userManager.GetUserById(device.UserId);
-            if (user is null || user.GetInactiveLogoutMinutes() <= 0)
+            if (user is null || _config.Configuration.InactiveLogoutMinutes <= 0)
             {
-                return;
+                return false;
             }
 
             if (await _trustedDeviceManager.IsAdministratorTrustedAsync(device.UserId, device.DeviceId).ConfigureAwait(false))
             {
-                return;
+                return false;
             }
 
             await LogoutInactiveDevices(user, device).ConfigureAwait(false);
+            return _config.Configuration.InactiveLogoutScope != InactiveLogoutScope.UserExceptDevice;
         }
 
         /// <inheritdoc />

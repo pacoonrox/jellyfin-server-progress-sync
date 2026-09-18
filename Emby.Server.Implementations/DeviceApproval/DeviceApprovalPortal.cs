@@ -104,7 +104,7 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
             request.State = DeviceApprovalState.Selected; request.SelectedBy = actorUserId; request.SelectedUtc = _time.GetUtcNow().UtcDateTime;
             var dto = ToDto(request, false, false);
             var user = _users.GetUserById(actorUserId);
-            dto.TrustAllowed = _configuration.Configuration.TrustedDevicesEnabled && user is not null && user.GetInactiveLogoutMinutes() == 0;
+            dto.TrustAllowed = _configuration.Configuration.TrustedDevicesEnabled && user is not null && _configuration.Configuration.InactiveLogoutMinutes == 0;
             dto.TrustDurationDays = _configuration.Configuration.TrustedDeviceDefaultDays;
             return dto;
         }
@@ -150,8 +150,9 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
                 // A successful portal approval is an explicit authorization by
                 // the approving session. Automatically trust the requesting
                 // installation for the configured period when the account is
-                // eligible; automatic-logout accounts remain administrator-only.
-                if (trustDevice && DeviceInventoryPolicy.ShouldTrack(request.AppName) && _configuration.Configuration.TrustedDevicesEnabled && user.GetInactiveLogoutMinutes() == 0)
+                // eligible; while global automatic logout is enabled, trust
+                // issuance remains administrator-only.
+                if (trustDevice && DeviceInventoryPolicy.ShouldTrack(request.AppName) && _configuration.Configuration.TrustedDevicesEnabled && _configuration.Configuration.InactiveLogoutMinutes == 0)
                 {
                     await _trust.IssueAsync(actorUserId, request.DeviceCredential, request.InstallationId, "Portal", actorUserId, user.HasPermission(Jellyfin.Database.Implementations.Enums.PermissionKind.IsAdministrator)).ConfigureAwait(false);
                 }

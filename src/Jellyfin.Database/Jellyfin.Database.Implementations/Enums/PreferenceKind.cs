@@ -101,12 +101,12 @@ public enum PreferenceKind
     TwoFactorAuthenticationFailedAttemptCount = 18,
 
     /// <summary>
-    /// The user's automatic logout timeout in inactive minutes.
+    /// Legacy per-user automatic logout timeout, retained for database compatibility.
     /// </summary>
     InactiveLogoutMinutes = 19,
 
     /// <summary>
-    /// Whether an automatic inactivity logout applies to one device or every device for the user.
+    /// Legacy per-user inactivity logout scope, retained for database compatibility.
     /// </summary>
     InactiveLogoutScope = 20
 }

@@ -2,6 +2,7 @@
 #pragma warning disable CA1819
 
 using System;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.System;
@@ -90,6 +91,12 @@ public class ServerConfiguration : BaseApplicationConfiguration
 
     /// <summary>Gets or sets the default trusted-device lifetime in days.</summary>
     public int TrustedDeviceDefaultDays { get; set; } = 30;
+
+    /// <summary>Gets or sets the global automatic logout timeout in inactive minutes. Zero disables it.</summary>
+    public int InactiveLogoutMinutes { get; set; }
+
+    /// <summary>Gets or sets which devices are signed out when the global inactivity timeout is reached.</summary>
+    public InactiveLogoutScope InactiveLogoutScope { get; set; } = InactiveLogoutScope.Device;
 
     /// <summary>
     /// Gets or sets a value indicating whether [enable case-sensitive item ids].

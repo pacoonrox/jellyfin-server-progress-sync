@@ -213,48 +213,6 @@ public static class UserEntityExtensions
         => entity.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationFailedAttemptCount, count.ToString(CultureInfo.InvariantCulture));
 
     /// <summary>
-    /// Gets the user's automatic logout timeout in inactive minutes.
-    /// </summary>
-    /// <param name="entity">The entity to read.</param>
-    /// <returns>The automatic logout timeout in inactive minutes.</returns>
-    public static int GetInactiveLogoutMinutes(this User entity)
-    {
-        var value = entity.GetPreference(PreferenceKind.InactiveLogoutMinutes).FirstOrDefault();
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) && minutes > 0
-            ? minutes
-            : 0;
-    }
-
-    /// <summary>
-    /// Sets the user's automatic logout timeout in inactive minutes.
-    /// </summary>
-    /// <param name="entity">The entity to update.</param>
-    /// <param name="minutes">The automatic logout timeout in inactive minutes.</param>
-    public static void SetInactiveLogoutMinutes(this User entity, int minutes)
-        => entity.SetPreference(PreferenceKind.InactiveLogoutMinutes, new[] { Math.Max(0, minutes).ToString(CultureInfo.InvariantCulture) });
-
-    /// <summary>
-    /// Gets the devices affected when this user reaches the inactivity timeout.
-    /// </summary>
-    /// <param name="entity">The entity to read.</param>
-    /// <returns>The configured inactivity logout scope.</returns>
-    public static InactiveLogoutScope GetInactiveLogoutScope(this User entity)
-    {
-        var value = entity.GetPreference(PreferenceKind.InactiveLogoutScope).FirstOrDefault();
-        return Enum.TryParse<InactiveLogoutScope>(value, true, out var scope) && Enum.IsDefined(scope)
-            ? scope
-            : InactiveLogoutScope.Device;
-    }
-
-    /// <summary>
-    /// Sets the devices affected when this user reaches the inactivity timeout.
-    /// </summary>
-    /// <param name="entity">The entity to update.</param>
-    /// <param name="scope">The inactivity logout scope.</param>
-    public static void SetInactiveLogoutScope(this User entity, InactiveLogoutScope scope)
-        => entity.SetPreference(PreferenceKind.InactiveLogoutScope, new[] { scope.ToString() });
-
-    /// <summary>
     /// Checks whether this user is currently allowed to use the server.
     /// </summary>
     /// <param name="entity">The entity to update.</param>

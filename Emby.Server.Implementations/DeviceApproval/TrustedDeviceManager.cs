@@ -70,8 +70,7 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             db.SecurityAuditRecords.Add(NewAudit("TrustExpired", record.Source, "Success", null, userId, record.Id, false));
         }
 
-        var user = _users.GetUserById(userId);
-        var automaticLogoutDisallowsSelfTrust = user is not null && user.GetInactiveLogoutMinutes() > 0 && !string.Equals(record.Source, "Administrator", StringComparison.Ordinal);
+        var automaticLogoutDisallowsSelfTrust = _configuration.Configuration.InactiveLogoutMinutes > 0 && !string.Equals(record.Source, "Administrator", StringComparison.Ordinal);
         var valid = record.State == "Trusted" && record.RevokedUtc is null && !record.RequiresFreshTwoFactor && !automaticLogoutDisallowsSelfTrust && record.ExpiresUtc > DateTime.UtcNow && record.InstallationId == installationId;
         await db.SaveChangesAsync().ConfigureAwait(false);
         return valid;

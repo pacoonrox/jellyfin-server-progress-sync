@@ -342,8 +342,8 @@ namespace MediaBrowser.Controller.Session
         /// Logs out the device or user associated with an access token according to the user's inactivity policy.
         /// </summary>
         /// <param name="accessToken">The inactive device's access token.</param>
-        /// <returns>A <see cref="Task"/> representing the logout process.</returns>
-        Task LogoutInactive(string accessToken);
+        /// <returns>A task containing whether the current device should clear its local session.</returns>
+        Task<bool> LogoutInactive(string accessToken);
 
         /// <summary>
         /// Revokes the user tokens.

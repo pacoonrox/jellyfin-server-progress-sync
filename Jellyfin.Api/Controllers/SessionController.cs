@@ -428,15 +428,14 @@ public class SessionController : BaseJellyfinApiController
     /// <summary>
     /// Reports that the current device reached the user's configured inactivity timeout.
     /// </summary>
-    /// <response code="204">The configured inactivity logout was applied.</response>
-    /// <returns>A <see cref="NoContentResult"/> indicating success.</returns>
+    /// <response code="200">The configured inactivity logout was evaluated.</response>
+    /// <returns>Whether the current device should clear its local session.</returns>
     [HttpPost("Sessions/Logout/Inactive")]
     [Authorize]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public async Task<ActionResult> ReportSessionInactive()
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public async Task<ActionResult<bool>> ReportSessionInactive()
     {
-        await _sessionManager.LogoutInactive(User.GetToken()).ConfigureAwait(false);
-        return NoContent();
+        return await _sessionManager.LogoutInactive(User.GetToken()).ConfigureAwait(false);
     }
 
     /// <summary>

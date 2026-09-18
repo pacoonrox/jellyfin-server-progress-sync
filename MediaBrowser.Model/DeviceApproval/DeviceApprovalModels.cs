@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Jellyfin.Database.Implementations.Enums;
 
 #pragma warning disable CS1591, SA1136, SA1402, SA1502, SA1516, SA1649
 
@@ -64,6 +65,8 @@ public sealed class TrustedDevicePolicyDto
 {
     public bool Enabled { get; set; }
     public int DefaultTrustDays { get; set; }
+    public int InactiveLogoutMinutes { get; set; }
+    public InactiveLogoutScope InactiveLogoutScope { get; set; }
 }
 
 public sealed class TrustedDeviceUpdateRequest
