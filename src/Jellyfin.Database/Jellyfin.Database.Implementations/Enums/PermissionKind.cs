@@ -124,4 +124,14 @@ public enum PermissionKind
     /// Whether the user can edit lyrics.
     /// </summary>
     EnableLyricManagement = 23,
+
+    /// <summary>
+    /// Whether automatic idle logout is enabled for this user.
+    /// </summary>
+    IdleLogoutEnabled = 24,
+
+    /// <summary>
+    /// For the SelectedManual idle-logout scope mode, whether devices added in the future default to being subject to (true) or exempt from (false) idle logout.
+    /// </summary>
+    IdleLogoutManualFutureDefault = 25,
 }

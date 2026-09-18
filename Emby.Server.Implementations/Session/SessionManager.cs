@@ -735,14 +735,6 @@ namespace Emby.Server.Implementations.Session
         private async void CheckForInactiveLogout(object state)
         {
             var now = DateTime.UtcNow;
-            var timeoutMinutes = _config.Configuration.InactiveLogoutMinutes;
-            if (timeoutMinutes <= 0)
-            {
-                return;
-            }
-
-            var logoutScope = _config.Configuration.InactiveLogoutScope;
-            var usersLoggedOut = new HashSet<Guid>();
             var devicesWithLogoutPolicy = _deviceManager.GetDevices(new DeviceQuery())
                 .Items
                 .Select(device => new
@@ -753,7 +745,7 @@ namespace Emby.Server.Implementations.Session
                         session.UserId.Equals(device.UserId)
                         && string.Equals(session.DeviceId, device.DeviceId, StringComparison.OrdinalIgnoreCase))
                 })
-                .Where(item => item.User is not null)
+                .Where(item => item.User is not null && item.User.IsIdleLogoutEnabled() && item.User.IsDeviceSubjectToIdleLogout(item.Device.DeviceId))
                 .ToList();
 
             foreach (var item in devicesWithLogoutPolicy)
@@ -761,21 +753,7 @@ namespace Emby.Server.Implementations.Session
                 var device = item.Device;
                 var session = item.Session;
 
-                if (usersLoggedOut.Contains(device.UserId))
-                {
-                    continue;
-                }
-
                 if (session?.NowPlayingItem is not null && !session.PlayState.IsPaused)
-                {
-                    continue;
-                }
-
-                // An administrator-granted trust is an explicit exemption from this
-                // policy for that one device; self-granted trust cannot reach this
-                // point at all, since a user with idle logout enabled is never
-                // allowed to self-trust a device in the first place.
-                if (await _trustedDeviceManager.IsAdministratorTrustedAsync(device.UserId, device.DeviceId).ConfigureAwait(false))
                 {
                     continue;
                 }
@@ -786,55 +764,61 @@ namespace Emby.Server.Implementations.Session
                 var sessionActivity = session?.LastPausedDate ?? session?.LastActivityDate ?? DateTime.MinValue;
                 var inactiveSince = device.DateLastActivity > sessionActivity ? device.DateLastActivity : sessionActivity;
                 var inactiveMinutes = (now - inactiveSince).TotalMinutes;
-                if (inactiveMinutes < timeoutMinutes)
+                if (inactiveMinutes < item.User.GetIdleLogoutMinutes())
                 {
                     continue;
                 }
 
-                await LogoutInactiveDevices(item.User, device, inactiveMinutes).ConfigureAwait(false);
-                if (logoutScope != InactiveLogoutScope.Device)
-                {
-                    usersLoggedOut.Add(device.UserId);
-                }
+                await LogoutInactiveDeviceAsync(item.User, device, inactiveMinutes).ConfigureAwait(false);
             }
         }
 
-        private async Task LogoutInactiveDevices(User user, Device inactiveDevice, double? inactiveMinutes = null)
+        /// <summary>
+        /// Checks whether a device is currently eligible to be auto-logged-out: subject to its user's idle-logout
+        /// policy and not exempted by an administrator-granted trust. Does not itself check elapsed idle time --
+        /// callers that need to verify actual inactivity (e.g. the periodic sweep) do so before calling this.
+        /// </summary>
+        private async Task<bool> IsIdleLogoutEligibleAsync(User user, Device device)
         {
-            var scope = _config.Configuration.InactiveLogoutScope;
-            var query = new DeviceQuery { UserId = user.Id };
-            if (scope == InactiveLogoutScope.Device)
+            if (!user.IsDeviceSubjectToIdleLogout(device.DeviceId))
             {
-                query.DeviceId = inactiveDevice.DeviceId;
+                return false;
             }
 
-            var devices = _deviceManager.GetDevices(query).Items;
-            if (scope == InactiveLogoutScope.UserExceptDevice)
+            // An administrator-granted trust is an explicit exemption from this
+            // policy for that one device; self-granted trust cannot reach this
+            // point at all, since a user with idle logout enabled is never
+            // allowed to self-trust a device in the first place.
+            return !await _trustedDeviceManager.IsAdministratorTrustedAsync(user.Id, device.DeviceId).ConfigureAwait(false);
+        }
+
+        /// <summary>
+        /// Logs out a single device if it is currently subject to its user's idle-logout policy and not exempt.
+        /// Each device is judged independently: one device going idle never logs out another device.
+        /// </summary>
+        private async Task<bool> LogoutInactiveDeviceAsync(User user, Device device, double? inactiveMinutes = null)
+        {
+            if (!await IsIdleLogoutEligibleAsync(user, device).ConfigureAwait(false))
             {
-                devices = devices
-                    .Where(device => !string.Equals(device.DeviceId, inactiveDevice.DeviceId, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
+                return false;
             }
 
             _logger.LogInformation(
-                "Logging out {DeviceCount} access token(s) for inactive device {DeviceId} and user {UserId} with scope {InactiveLogoutScope} after {InactiveMinutes:N1} inactive minutes.",
-                devices.Count,
-                inactiveDevice.DeviceId,
+                "Logging out inactive device {DeviceId} for user {UserId} after {InactiveMinutes:N1} inactive minutes.",
+                device.DeviceId,
                 user.Id,
-                scope,
                 inactiveMinutes);
 
-            foreach (var device in devices)
+            try
             {
-                try
-                {
-                    await _trustedDeviceManager.RequireFreshTwoFactorAsync(device.UserId, device.DeviceId).ConfigureAwait(false);
-                    await Logout(device).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error logging out inactive device {DeviceId} for user {UserId}.", device.DeviceId, device.UserId);
-                }
+                await _trustedDeviceManager.RequireFreshTwoFactorAsync(device.UserId, device.DeviceId).ConfigureAwait(false);
+                await Logout(device).ConfigureAwait(false);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error logging out inactive device {DeviceId} for user {UserId}.", device.DeviceId, device.UserId);
+                return false;
             }
         }
 
@@ -1880,7 +1864,7 @@ namespace Emby.Server.Implementations.Session
                         {
                             User = _userManager.GetUserDto(user, request.RemoteEndPoint),
                             RequiresTwoFactorAuthentication = true,
-                            CanTrustDevice = _config.Configuration.TrustedDevicesEnabled && _config.Configuration.InactiveLogoutMinutes == 0,
+                            CanTrustDevice = _config.Configuration.TrustedDevicesEnabled && !user.IsIdleLogoutEnabled(),
                             TrustedDeviceDefaultDays = _config.Configuration.TrustedDeviceDefaultDays,
                             ServerId = _appHost.SystemId
                         };
@@ -1927,7 +1911,7 @@ namespace Emby.Server.Implementations.Session
             {
                 var provenance = completedDirectTwoFactor ? "DirectTwoFactor" : usedTrustedDevice ? "TrustedDevice" : "DirectPassword";
                 await _trustedDeviceManager.SetSessionProvenanceAsync(token, provenance, completedDirectTwoFactor ? DateTime.UtcNow : null).ConfigureAwait(false);
-                if (trackDevice && _config.Configuration.TrustedDevicesEnabled && completedDirectTwoFactor && _config.Configuration.InactiveLogoutMinutes == 0 && !string.IsNullOrWhiteSpace(request.DeviceCredential))
+                if (trackDevice && _config.Configuration.TrustedDevicesEnabled && completedDirectTwoFactor && !user.IsIdleLogoutEnabled() && !string.IsNullOrWhiteSpace(request.DeviceCredential))
                 {
                     await _trustedDeviceManager.IssueAsync(user.Id, request.DeviceCredential, request.DeviceId, "Direct", user.Id, user.HasPermission(PermissionKind.IsAdministrator)).ConfigureAwait(false);
                 }
@@ -2042,18 +2026,15 @@ namespace Emby.Server.Implementations.Session
             }
 
             var user = _userManager.GetUserById(device.UserId);
-            if (user is null || _config.Configuration.InactiveLogoutMinutes <= 0)
+            if (user is null || !user.IsIdleLogoutEnabled())
             {
                 return false;
             }
 
-            if (await _trustedDeviceManager.IsAdministratorTrustedAsync(device.UserId, device.DeviceId).ConfigureAwait(false))
-            {
-                return false;
-            }
-
-            await LogoutInactiveDevices(user, device).ConfigureAwait(false);
-            return _config.Configuration.InactiveLogoutScope != InactiveLogoutScope.UserExceptDevice;
+            // This is called on-demand by the client's own idle-timer report; unlike the
+            // periodic sweep, elapsed idle time is not re-verified here, trusting the
+            // client's determination that it has been idle.
+            return await LogoutInactiveDeviceAsync(user, device).ConfigureAwait(false);
         }
 
         /// <inheritdoc />

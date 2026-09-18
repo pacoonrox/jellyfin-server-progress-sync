@@ -139,6 +139,7 @@ namespace Jellyfin.Server.Implementations.Users
                             .Include(user => user.Permissions)
                             .Include(user => user.Preferences)
                             .Include(user => user.AccessSchedules)
+                            .Include(user => user.IdleLogoutDeviceOverrides)
                             .Include(user => user.ProfileImage)
                             .AsNoTracking();
         }
@@ -562,8 +563,7 @@ namespace Jellyfin.Server.Implementations.Users
                     BlockedMediaFolders = user.GetPreferenceValues<Guid>(PreferenceKind.BlockedMediaFolders),
                     BlockUnratedItems = user.GetPreferenceValues<UnratedItem>(PreferenceKind.BlockUnratedItems),
                     TwoFactorAuthenticationPolicy = user.GetTwoFactorAuthenticationPolicy(),
-                    InactiveLogoutMinutes = _serverConfigurationManager.Configuration.InactiveLogoutMinutes,
-                    InactiveLogoutScope = _serverConfigurationManager.Configuration.InactiveLogoutScope
+                    InactiveLogoutMinutes = user.IsIdleLogoutEnabled() ? user.GetIdleLogoutMinutes() : 0
                 }
             };
         }

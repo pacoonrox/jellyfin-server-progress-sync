@@ -27,25 +27,139 @@ namespace Jellyfin.Server.Implementations.Tests.SessionManager;
 
 public sealed class SessionManagerInactiveLogoutTests
 {
+    private const string TargetDeviceId = "target-device";
+    private const string OtherDeviceId = "other-device";
+
     [Theory]
-    [InlineData(InactiveLogoutScope.Device, false, false, 1, true)]
-    [InlineData(InactiveLogoutScope.User, false, false, 2, true)]
-    [InlineData(InactiveLogoutScope.User, true, false, 2, true)]
-    [InlineData(InactiveLogoutScope.UserExceptDevice, false, false, 1, false)]
-    [InlineData(InactiveLogoutScope.User, false, true, 0, false)]
-    public async Task LogoutInactive_AppliesConfiguredScope_ForRegularAndAdministratorUsers(
+    // Master switch off: never logged out, regardless of scope mode.
+    [InlineData(false, InactiveLogoutScope.AllDevices, false, false)]
+    // AllDevices: the target device is subject.
+    [InlineData(true, InactiveLogoutScope.AllDevices, false, true)]
+    // NoDevices: never subject, regardless of the switch.
+    [InlineData(true, InactiveLogoutScope.NoDevices, false, false)]
+    // AllDevicesExceptSelected, target NOT in the exception list: subject (follows "All").
+    [InlineData(true, InactiveLogoutScope.AllDevicesExceptSelected, false, true)]
+    // AllDevicesExceptSelected, target IS in the exception list: exempt.
+    [InlineData(true, InactiveLogoutScope.AllDevicesExceptSelected, true, false)]
+    // NoDevicesExceptSelected, target NOT in the list: exempt (follows "No").
+    [InlineData(true, InactiveLogoutScope.NoDevicesExceptSelected, false, false)]
+    // NoDevicesExceptSelected, target IS in the list: subject.
+    [InlineData(true, InactiveLogoutScope.NoDevicesExceptSelected, true, true)]
+    public async Task LogoutInactive_EvaluatesTargetDeviceIndependently_ByScopeMode(
+        bool enabled,
         InactiveLogoutScope scope,
-        bool isAdministrator,
-        bool isAdministratorTrusted,
-        int expectedLogoutCount,
-        bool expectInactiveDeviceLogout)
+        bool targetInSelectedList,
+        bool expectLoggedOut)
     {
         var user = new User("idle-user", "default", "default");
-        user.SetPermission(PermissionKind.IsAdministrator, isAdministrator);
+        user.SetPermission(PermissionKind.IdleLogoutEnabled, enabled);
+        user.SetIdleLogoutMinutes(15);
+        user.SetIdleLogoutScopeMode(scope);
+        if (targetInSelectedList)
+        {
+            user.SetPreference(PreferenceKind.IdleLogoutSelectedDeviceIds, new[] { TargetDeviceId });
+        }
 
-        var inactiveDevice = new Device(user.Id, "Web", "1.0", "Inactive device", "inactive-device");
-        var otherDevice = new Device(user.Id, "Web", "1.0", "Other device", "other-device");
-        var devices = new[] { inactiveDevice, otherDevice };
+        var harness = CreateHarness(user, isAdministratorTrusted: false);
+        await using var sessionManager = harness.SessionManager;
+
+        var loggedOutCurrentDevice = await sessionManager.LogoutInactive(harness.TargetDevice.AccessToken);
+
+        Assert.Equal(expectLoggedOut, loggedOutCurrentDevice);
+        Assert.Equal(expectLoggedOut, harness.LoggedOutDevices.Contains(harness.TargetDevice));
+    }
+
+    [Fact]
+    public async Task LogoutInactive_OneDeviceGoingIdle_NeverLogsOutASiblingDevice()
+    {
+        var user = new User("idle-user", "default", "default");
+        user.SetPermission(PermissionKind.IdleLogoutEnabled, true);
+        user.SetIdleLogoutMinutes(15);
+        user.SetIdleLogoutScopeMode(InactiveLogoutScope.AllDevices);
+
+        var harness = CreateHarness(user, isAdministratorTrusted: false);
+        await using var sessionManager = harness.SessionManager;
+
+        var loggedOutCurrentDevice = await sessionManager.LogoutInactive(harness.TargetDevice.AccessToken);
+
+        Assert.True(loggedOutCurrentDevice);
+        Assert.Contains(harness.TargetDevice, harness.LoggedOutDevices);
+        Assert.DoesNotContain(harness.OtherDevice, harness.LoggedOutDevices);
+    }
+
+    [Fact]
+    public async Task LogoutInactive_SelectedManual_UsesExplicitOverrideWhenPresent()
+    {
+        var user = new User("idle-user", "default", "default");
+        user.SetPermission(PermissionKind.IdleLogoutEnabled, true);
+        user.SetIdleLogoutMinutes(15);
+        user.SetIdleLogoutScopeMode(InactiveLogoutScope.SelectedManual);
+        user.SetPermission(PermissionKind.IdleLogoutManualFutureDefault, false);
+        user.IdleLogoutDeviceOverrides.Add(new IdleLogoutDeviceOverride(user.Id, TargetDeviceId, true));
+
+        var harness = CreateHarness(user, isAdministratorTrusted: false);
+        await using var sessionManager = harness.SessionManager;
+
+        var loggedOutCurrentDevice = await sessionManager.LogoutInactive(harness.TargetDevice.AccessToken);
+
+        Assert.True(loggedOutCurrentDevice);
+        Assert.Contains(harness.TargetDevice, harness.LoggedOutDevices);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public async Task LogoutInactive_SelectedManual_FallsBackToFutureDefault_WhenNoOverrideExists(bool futureDefault, bool expectLoggedOut)
+    {
+        var user = new User("idle-user", "default", "default");
+        user.SetPermission(PermissionKind.IdleLogoutEnabled, true);
+        user.SetIdleLogoutMinutes(15);
+        user.SetIdleLogoutScopeMode(InactiveLogoutScope.SelectedManual);
+        user.SetPermission(PermissionKind.IdleLogoutManualFutureDefault, futureDefault);
+
+        var harness = CreateHarness(user, isAdministratorTrusted: false);
+        await using var sessionManager = harness.SessionManager;
+
+        var loggedOutCurrentDevice = await sessionManager.LogoutInactive(harness.TargetDevice.AccessToken);
+
+        Assert.Equal(expectLoggedOut, loggedOutCurrentDevice);
+        Assert.Equal(expectLoggedOut, harness.LoggedOutDevices.Contains(harness.TargetDevice));
+    }
+
+    [Fact]
+    public async Task LogoutInactive_AdministratorTrustedDevice_IsNeverLoggedOut()
+    {
+        var user = new User("idle-user", "default", "default");
+        user.SetPermission(PermissionKind.IdleLogoutEnabled, true);
+        user.SetIdleLogoutMinutes(15);
+        user.SetIdleLogoutScopeMode(InactiveLogoutScope.AllDevices);
+
+        var harness = CreateHarness(user, isAdministratorTrusted: true);
+        await using var sessionManager = harness.SessionManager;
+
+        var loggedOutCurrentDevice = await sessionManager.LogoutInactive(harness.TargetDevice.AccessToken);
+
+        Assert.False(loggedOutCurrentDevice);
+        Assert.DoesNotContain(harness.TargetDevice, harness.LoggedOutDevices);
+    }
+
+    [Fact]
+    public void IdleLogoutDefaults_DisabledWithFiveMinuteAllDevicesScope()
+    {
+        var user = new User("fresh-user", "default", "default");
+
+        Assert.False(user.IsIdleLogoutEnabled());
+        Assert.Equal(5, user.GetIdleLogoutMinutes());
+        Assert.Equal(InactiveLogoutScope.AllDevices, user.GetIdleLogoutScopeMode());
+    }
+
+    private static (Emby.Server.Implementations.Session.SessionManager SessionManager, Device TargetDevice, Device OtherDevice, List<Device> LoggedOutDevices, Mock<ITrustedDeviceManager> TrustedDeviceManager) CreateHarness(
+        User user,
+        bool isAdministratorTrusted)
+    {
+        var targetDevice = new Device(user.Id, "Web", "1.0", "Target device", TargetDeviceId);
+        var otherDevice = new Device(user.Id, "Web", "1.0", "Other device", OtherDeviceId);
+        var devices = new[] { targetDevice, otherDevice };
         var loggedOutDevices = new List<Device>();
 
         var deviceManager = new Mock<IDeviceManager>();
@@ -91,13 +205,9 @@ public sealed class SessionManagerInactiveLogoutTests
         hostLifetime.SetupGet(host => host.ApplicationStopping).Returns(CancellationToken.None);
 
         var serverConfigurationManager = new Mock<IServerConfigurationManager>();
-        serverConfigurationManager.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration
-        {
-            InactiveLogoutMinutes = 15,
-            InactiveLogoutScope = scope
-        });
+        serverConfigurationManager.SetupGet(manager => manager.Configuration).Returns(new ServerConfiguration());
 
-        await using var sessionManager = new Emby.Server.Implementations.Session.SessionManager(
+        var sessionManager = new Emby.Server.Implementations.Session.SessionManager(
             NullLogger<Emby.Server.Implementations.Session.SessionManager>.Instance,
             Mock.Of<IEventManager>(),
             Mock.Of<IUserDataManager>(),
@@ -113,23 +223,6 @@ public sealed class SessionManagerInactiveLogoutTests
             Mock.Of<IMediaSourceManager>(),
             hostLifetime.Object);
 
-        var logoutCurrentDevice = await sessionManager.LogoutInactive(inactiveDevice.AccessToken);
-
-        Assert.Equal(expectInactiveDeviceLogout, logoutCurrentDevice);
-        Assert.Equal(expectedLogoutCount, loggedOutDevices.Count);
-        Assert.Equal(expectInactiveDeviceLogout, loggedOutDevices.Contains(inactiveDevice));
-        Assert.Equal(expectedLogoutCount > 0 && scope != InactiveLogoutScope.Device, loggedOutDevices.Contains(otherDevice));
-        Assert.Equal(
-            expectedLogoutCount,
-            trustedDeviceManager.Invocations.Count(invocation => invocation.Method.Name == nameof(ITrustedDeviceManager.RequireFreshTwoFactorAsync)));
-    }
-
-    [Fact]
-    public void InactiveLogoutPolicy_DefaultsToDisabledAndDeviceScope()
-    {
-        var configuration = new ServerConfiguration();
-
-        Assert.Equal(0, configuration.InactiveLogoutMinutes);
-        Assert.Equal(InactiveLogoutScope.Device, configuration.InactiveLogoutScope);
+        return (sessionManager, targetDevice, otherDevice, loggedOutDevices, trustedDeviceManager);
     }
 }

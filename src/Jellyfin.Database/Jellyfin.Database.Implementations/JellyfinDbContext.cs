@@ -49,6 +49,9 @@ public class JellyfinDbContext(DbContextOptions<JellyfinDbContext> options, ILog
     /// <summary>Gets device approval and trust audit records.</summary>
     public DbSet<SecurityAuditRecord> SecurityAuditRecords => Set<SecurityAuditRecord>();
 
+    /// <summary>Gets explicit per-device idle-logout overrides.</summary>
+    public DbSet<IdleLogoutDeviceOverride> IdleLogoutDeviceOverrides => Set<IdleLogoutDeviceOverride>();
+
     /// <summary>
     /// Gets the <see cref="DbSet{TEntity}"/> containing the device options.
     /// </summary>

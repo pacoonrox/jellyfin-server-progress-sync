@@ -4,7 +4,7 @@ The shared Device Approval API is the primary Quick Sign-On flow. Jellyfin's leg
 
 ## Security model
 
-A trusted-device record belongs to one Jellyfin user and one client installation. On a later direct login, Jellyfin validates the password first and then may use the installation credential instead of asking for TOTP. Trust never creates or extends a session or overrides account and permission checks. Administrator-granted trust also prevents that installation from triggering the global idle logout policy.
+A trusted-device record belongs to one Jellyfin user and one client installation. On a later direct login, Jellyfin validates the password first and then may use the installation credential instead of asking for TOTP. Trust never creates or extends a session or overrides account and permission checks. Administrator-granted trust also prevents that installation from being auto-logged-out by that user's idle logout policy.
 
 The installation credential is 256 random bits. The server stores its SHA-256 digest, never the reusable value. Native clients should keep it in Keychain, Keystore, or equivalent secure platform storage and preserve it across routine app and OS upgrades. Jellyfin Web uses origin-scoped application storage. Clearing app data or reinstalling creates a new credential and requires verification again. Friendly names, client versions, operating-system data, and IP addresses are telemetry, not identity credentials.
 
@@ -14,9 +14,9 @@ Administrators may mark an observed device as **Never trust**. That state surviv
 
 ## User workflow
 
-After password validation requires 2FA, eligible users see **Trust this device for 30 days**, checked by default. When the global inactivity policy is enabled, users cannot self-issue trust; an administrator may still trust an observed installation. After an automatic logout, that installation must complete a fresh direct 2FA check once before any administrator-issued bypass can be used again; the password is always required.
+After password validation requires 2FA, eligible users see **Trust this device for 30 days**, checked by default. When idle logout is enabled for that user, they cannot self-issue trust; an administrator may still trust an observed installation. After an automatic logout, that installation must complete a fresh direct 2FA check once before any administrator-issued bypass can be used again; the password is always required.
 
-The **Trusted devices** dashboard also owns the server-wide inactivity policy. One timeout applies to every account, including administrators, and can sign out only the inactive device, all devices for that user, or all of that user's devices except the inactive device. Device-only is the default scope and a timeout of zero disables the policy. An administrator-trusted installation remains exempt as an inactivity trigger; if another installation triggers a user-wide logout, trusted installations included by the selected scope are logged out and must complete a fresh 2FA check.
+Idle logout is configured per user, by an administrator, from within that user's group on the **Trusted devices** dashboard — there is no server-wide inactivity setting. Each user independently has a master enable/disable switch, an idle timeout in minutes (5 by default), and a scope mode choosing which of that user's devices the timeout applies to: all devices, no devices, all devices except a chosen list, no devices except a chosen list, or individually selected devices (with a default applied to devices added later). Every device is judged independently against its own activity: one device going idle never logs out any other device. An administrator-trusted installation is exempt from being auto-logged-out by its own user's policy; it does not affect whether any other device is logged out.
 
 **Quick Sign-On** creates an anonymous five-minute request. It sends no username, password, or intended account. Every signed-in user sees the shared queue. Selecting a device opens an explicit approval prompt. Confirming **Approve** signs the device into the approving user's account. **Not this device** returns it to the queue.
 
@@ -29,7 +29,7 @@ Only a session whose current access token was created by direct password authent
 Open **Dashboard → Trusted devices** to:
 
 - enable or disable the feature and set the default duration (1–3650 days);
-- set one global idle timeout and choose its device scope for every user;
+- set each user's own idle-logout timeout, scope mode, and (for the applicable modes) exception list or per-device overrides, from within that user's group;
 - search/filter records grouped by user;
 - trust a specifically observed user/installation pair, including automatic-logout accounts;
 - rename devices and edit expiration;

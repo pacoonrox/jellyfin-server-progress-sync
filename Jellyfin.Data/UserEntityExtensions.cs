@@ -213,6 +213,83 @@ public static class UserEntityExtensions
         => entity.SetTwoFactorAuthenticationValue(PreferenceKind.TwoFactorAuthenticationFailedAttemptCount, count.ToString(CultureInfo.InvariantCulture));
 
     /// <summary>
+    /// Gets a value indicating whether automatic idle logout is enabled for this user.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <returns><c>true</c> if idle logout is enabled for this user.</returns>
+    public static bool IsIdleLogoutEnabled(this User entity)
+        => entity.HasPermission(PermissionKind.IdleLogoutEnabled);
+
+    /// <summary>
+    /// Gets the user's idle logout timeout, in minutes.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <returns>The idle logout timeout in minutes. Defaults to 5 when never configured.</returns>
+    public static int GetIdleLogoutMinutes(this User entity)
+    {
+        var value = entity.GetPreference(PreferenceKind.IdleLogoutMinutes).FirstOrDefault();
+        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var minutes) && minutes > 0
+            ? minutes
+            : 5;
+    }
+
+    /// <summary>
+    /// Sets the user's idle logout timeout, in minutes.
+    /// </summary>
+    /// <param name="entity">The entity to update.</param>
+    /// <param name="minutes">The idle logout timeout in minutes.</param>
+    public static void SetIdleLogoutMinutes(this User entity, int minutes)
+        => entity.SetPreference(PreferenceKind.IdleLogoutMinutes, new[] { Math.Max(1, minutes).ToString(CultureInfo.InvariantCulture) });
+
+    /// <summary>
+    /// Gets the user's idle logout scope mode.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <returns>The idle logout scope mode.</returns>
+    public static InactiveLogoutScope GetIdleLogoutScopeMode(this User entity)
+    {
+        var value = entity.GetPreference(PreferenceKind.IdleLogoutScopeMode).FirstOrDefault();
+        return Enum.TryParse<InactiveLogoutScope>(value, true, out var mode)
+            ? mode
+            : InactiveLogoutScope.AllDevices;
+    }
+
+    /// <summary>
+    /// Sets the user's idle logout scope mode.
+    /// </summary>
+    /// <param name="entity">The entity to update.</param>
+    /// <param name="mode">The idle logout scope mode.</param>
+    public static void SetIdleLogoutScopeMode(this User entity, InactiveLogoutScope mode)
+        => entity.SetPreference(PreferenceKind.IdleLogoutScopeMode, new[] { mode.ToString() });
+
+    /// <summary>
+    /// Checks whether the given device is currently subject to this user's idle logout policy.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <param name="deviceId">The device id to check.</param>
+    /// <returns><c>true</c> if the device is subject to idle logout.</returns>
+    public static bool IsDeviceSubjectToIdleLogout(this User entity, string deviceId)
+    {
+        if (!entity.IsIdleLogoutEnabled())
+        {
+            return false;
+        }
+
+        var selected = entity.GetPreference(PreferenceKind.IdleLogoutSelectedDeviceIds);
+        return entity.GetIdleLogoutScopeMode() switch
+        {
+            InactiveLogoutScope.AllDevices => true,
+            InactiveLogoutScope.NoDevices => false,
+            InactiveLogoutScope.AllDevicesExceptSelected => !selected.Contains(deviceId, StringComparer.OrdinalIgnoreCase),
+            InactiveLogoutScope.NoDevicesExceptSelected => selected.Contains(deviceId, StringComparer.OrdinalIgnoreCase),
+            InactiveLogoutScope.SelectedManual => entity.IdleLogoutDeviceOverrides
+                .FirstOrDefault(o => string.Equals(o.DeviceId, deviceId, StringComparison.OrdinalIgnoreCase))?.Subject
+                ?? entity.HasPermission(PermissionKind.IdleLogoutManualFutureDefault),
+            _ => false
+        };
+    }
+
+    /// <summary>
     /// Checks whether this user is currently allowed to use the server.
     /// </summary>
     /// <param name="entity">The entity to update.</param>

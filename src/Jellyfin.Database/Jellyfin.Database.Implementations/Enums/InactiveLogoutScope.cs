@@ -4,7 +4,9 @@ namespace Jellyfin.Database.Implementations.Enums;
 
 public enum InactiveLogoutScope
 {
-    Device = 0,
-    User = 1,
-    UserExceptDevice = 2
+    AllDevices = 0,
+    NoDevices = 1,
+    AllDevicesExceptSelected = 2,
+    NoDevicesExceptSelected = 3,
+    SelectedManual = 4
 }

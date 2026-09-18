@@ -15,6 +15,8 @@ public interface ITrustedDeviceManager
     Task SetSessionProvenanceAsync(string accessToken, string provenance, DateTime? directTwoFactorVerifiedUtc);
     Task<bool> CanApproveAsync(string accessToken);
     Task<bool> IsAdministratorTrustedAsync(Guid userId, string installationId);
+    Task<IdleLogoutPolicyDto> GetIdleLogoutPolicyAsync(Guid userId);
+    Task SetIdleLogoutPolicyAsync(Guid userId, IdleLogoutPolicyDto policy, Guid actorUserId);
     Task<IReadOnlyList<TrustedDeviceDto>> QueryAsync(string? search, Guid? userId, string? state);
     Task UpdateAsync(long id, string? friendlyName, DateTime? expiresUtc, Guid actorUserId);
     Task TrustObservedAsync(long id, string? friendlyName, DateTime expiresUtc, Guid actorUserId);

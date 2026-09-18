@@ -110,9 +110,7 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     public ActionResult<TrustedDevicePolicyDto> Policy() => new TrustedDevicePolicyDto
     {
         Enabled = _configuration.Configuration.TrustedDevicesEnabled,
-        DefaultTrustDays = _configuration.Configuration.TrustedDeviceDefaultDays,
-        InactiveLogoutMinutes = _configuration.Configuration.InactiveLogoutMinutes,
-        InactiveLogoutScope = _configuration.Configuration.InactiveLogoutScope
+        DefaultTrustDays = _configuration.Configuration.TrustedDeviceDefaultDays
     };
 
     [HttpPut("Admin/Policy")]
@@ -120,16 +118,27 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
     public async Task<ActionResult> UpdatePolicy([FromBody] TrustedDevicePolicyDto policy)
     {
         if (policy.DefaultTrustDays is < 1 or > 3650) return BadRequest("DefaultTrustDays must be between 1 and 3650");
-        if (policy.InactiveLogoutMinutes is < 0 or > 525600) return BadRequest("InactiveLogoutMinutes must be between 0 and 525600");
-        if (!Enum.IsDefined(policy.InactiveLogoutScope)) return BadRequest("InactiveLogoutScope is invalid");
         var oldEnabled = _configuration.Configuration.TrustedDevicesEnabled;
         _configuration.Configuration.TrustedDevicesEnabled = policy.Enabled;
         _configuration.Configuration.TrustedDeviceDefaultDays = policy.DefaultTrustDays;
-        _configuration.Configuration.InactiveLogoutMinutes = policy.InactiveLogoutMinutes;
-        _configuration.Configuration.InactiveLogoutScope = policy.InactiveLogoutScope;
         _configuration.SaveConfiguration();
         if (oldEnabled && !policy.Enabled) await _trust.RevokeAllAsync(User.GetUserId(), "PolicyDisabled").ConfigureAwait(false);
-        await _trust.AuditAsync("TrustPolicyChanged", "Administrator", "Success", User.GetUserId(), null, null, true, $"Enabled={policy.Enabled}; Days={policy.DefaultTrustDays}; IdleMinutes={policy.InactiveLogoutMinutes}; IdleScope={policy.InactiveLogoutScope}").ConfigureAwait(false);
+        await _trust.AuditAsync("TrustPolicyChanged", "Administrator", "Success", User.GetUserId(), null, null, true, $"Enabled={policy.Enabled}; Days={policy.DefaultTrustDays}").ConfigureAwait(false);
+        return NoContent();
+    }
+
+    [HttpGet("Admin/Users/{userId:guid}/IdleLogoutPolicy")]
+    [Authorize(Roles = UserRoles.Administrator)]
+    public async Task<ActionResult<IdleLogoutPolicyDto>> IdleLogoutPolicy([FromRoute] Guid userId)
+        => Ok(await _trust.GetIdleLogoutPolicyAsync(userId).ConfigureAwait(false));
+
+    [HttpPut("Admin/Users/{userId:guid}/IdleLogoutPolicy")]
+    [Authorize(Roles = UserRoles.Administrator)]
+    public async Task<ActionResult> UpdateIdleLogoutPolicy([FromRoute] Guid userId, [FromBody] IdleLogoutPolicyDto policy)
+    {
+        if (policy.Minutes is < 1 or > 525600) return BadRequest("Minutes must be between 1 and 525600");
+        if (!Enum.IsDefined(policy.ScopeMode)) return BadRequest("ScopeMode is invalid");
+        await _trust.SetIdleLogoutPolicyAsync(userId, policy, User.GetUserId()).ConfigureAwait(false);
         return NoContent();
     }
 

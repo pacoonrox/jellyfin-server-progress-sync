@@ -183,7 +183,7 @@ namespace Jellyfin.Server.Implementations.Security
                     // Inactivity logout is enforced from this persisted timestamp when no
                     // in-memory session exists. Flush it more frequently for affected users
                     // so closing a client or restarting the server does not lose recent activity.
-                    var activityPersistenceMinutes = _configurationManager.Configuration.InactiveLogoutMinutes > 0 ? 0.25 : 3;
+                    var activityPersistenceMinutes = authInfo.User?.IsIdleLogoutEnabled() == true ? 0.25 : 3;
                     if ((DateTime.UtcNow - device.DateLastActivity).TotalMinutes > activityPersistenceMinutes)
                     {
                         device.DateLastActivity = DateTime.UtcNow;

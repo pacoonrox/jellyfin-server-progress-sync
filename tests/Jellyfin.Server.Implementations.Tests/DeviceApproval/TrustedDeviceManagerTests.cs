@@ -8,6 +8,7 @@ using Jellyfin.Database.Implementations.Entities.Security;
 using Jellyfin.Database.Implementations.Locking;
 using Jellyfin.Database.Providers.Sqlite;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using Microsoft.Data.Sqlite;
@@ -36,7 +37,7 @@ public sealed class TrustedDeviceManagerTests : IDisposable
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>())).ReturnsAsync(CreateContext);
         var configuration = new Mock<IServerConfigurationManager>();
         configuration.SetupGet(x => x.Configuration).Returns(new ServerConfiguration { TrustedDevicesEnabled = true, TrustedDeviceDefaultDays = 30 });
-        _subject = new TrustedDeviceManager(factory.Object, configuration.Object, new Mock<IUserManager>().Object);
+        _subject = new TrustedDeviceManager(factory.Object, configuration.Object, new Mock<IUserManager>().Object, new Mock<IDeviceManager>().Object);
     }
 
     [Fact]

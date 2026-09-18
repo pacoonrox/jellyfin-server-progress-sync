@@ -5,12 +5,16 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Jellyfin.Data;
+using Jellyfin.Data.Queries;
 using Jellyfin.Database.Implementations;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Entities.Security;
+using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.DeviceApproval;
+using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.DeviceApproval;
 using Microsoft.EntityFrameworkCore;
@@ -24,12 +28,14 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
     private readonly IDbContextFactory<JellyfinDbContext> _dbFactory;
     private readonly IServerConfigurationManager _configuration;
     private readonly IUserManager _users;
+    private readonly IDeviceManager _devices;
 
-    public TrustedDeviceManager(IDbContextFactory<JellyfinDbContext> dbFactory, IServerConfigurationManager configuration, IUserManager users)
+    public TrustedDeviceManager(IDbContextFactory<JellyfinDbContext> dbFactory, IServerConfigurationManager configuration, IUserManager users, IDeviceManager devices)
     {
         _dbFactory = dbFactory;
         _configuration = configuration;
         _users = users;
+        _devices = devices;
     }
 
     public async Task<bool> ValidateAsync(Guid userId, string? credential, string installationId, string appName, string appVersion, string deviceName, string ipAddress)
@@ -70,7 +76,8 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             db.SecurityAuditRecords.Add(NewAudit("TrustExpired", record.Source, "Success", null, userId, record.Id, false));
         }
 
-        var automaticLogoutDisallowsSelfTrust = _configuration.Configuration.InactiveLogoutMinutes > 0 && !string.Equals(record.Source, "Administrator", StringComparison.Ordinal);
+        var user = _users.GetUserById(userId);
+        var automaticLogoutDisallowsSelfTrust = user is not null && user.IsIdleLogoutEnabled() && !string.Equals(record.Source, "Administrator", StringComparison.Ordinal);
         var valid = record.State == "Trusted" && record.RevokedUtc is null && !record.RequiresFreshTwoFactor && !automaticLogoutDisallowsSelfTrust && record.ExpiresUtc > DateTime.UtcNow && record.InstallationId == installationId;
         await db.SaveChangesAsync().ConfigureAwait(false);
         return valid;
@@ -305,6 +312,63 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             && x.RevokedUtc == null
             && !x.RequiresFreshTwoFactor
             && x.ExpiresUtc > DateTime.UtcNow).ConfigureAwait(false);
+    }
+
+    public async Task<IdleLogoutPolicyDto> GetIdleLogoutPolicyAsync(Guid userId)
+    {
+        var user = _users.GetUserById(userId) ?? throw new ResourceNotFoundException("User not found");
+        var devices = _devices.GetDevices(new DeviceQuery { UserId = userId }).Items;
+        var overrides = user.IdleLogoutDeviceOverrides.ToDictionary(o => o.DeviceId, o => o.Subject, StringComparer.OrdinalIgnoreCase);
+
+        return new IdleLogoutPolicyDto
+        {
+            Enabled = user.IsIdleLogoutEnabled(),
+            Minutes = user.GetIdleLogoutMinutes(),
+            ScopeMode = user.GetIdleLogoutScopeMode(),
+            SelectedDeviceIds = user.GetPreference(PreferenceKind.IdleLogoutSelectedDeviceIds),
+            ManualFutureDefaultSubject = user.HasPermission(PermissionKind.IdleLogoutManualFutureDefault),
+            DeviceOverrides = overrides,
+            Devices = devices.Select(device => new IdleLogoutDeviceDto
+            {
+                DeviceId = device.DeviceId,
+                FriendlyName = device.DeviceName,
+                AppName = device.AppName,
+                DateLastActivity = device.DateLastActivity,
+                HasExplicitOverride = overrides.ContainsKey(device.DeviceId),
+                IsCurrentOverrideSubject = overrides.TryGetValue(device.DeviceId, out var subject) && subject
+            }).ToArray()
+        };
+    }
+
+    public async Task SetIdleLogoutPolicyAsync(Guid userId, IdleLogoutPolicyDto policy, Guid actorUserId)
+    {
+        await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+        var user = await db.Users
+            .Include(u => u.Permissions)
+            .Include(u => u.Preferences)
+            .Include(u => u.IdleLogoutDeviceOverrides)
+            .FirstOrDefaultAsync(u => u.Id.Equals(userId)).ConfigureAwait(false)
+            ?? throw new ResourceNotFoundException("User not found");
+
+        user.SetPermission(PermissionKind.IdleLogoutEnabled, policy.Enabled);
+        user.SetIdleLogoutMinutes(policy.Minutes);
+        user.SetIdleLogoutScopeMode(policy.ScopeMode);
+        user.SetPreference(PreferenceKind.IdleLogoutSelectedDeviceIds, policy.SelectedDeviceIds ?? Array.Empty<string>());
+        user.SetPermission(PermissionKind.IdleLogoutManualFutureDefault, policy.ManualFutureDefaultSubject);
+
+        user.IdleLogoutDeviceOverrides.Clear();
+        foreach (var (deviceId, subject) in policy.DeviceOverrides ?? new Dictionary<string, bool>())
+        {
+            if (string.IsNullOrWhiteSpace(deviceId))
+            {
+                continue;
+            }
+
+            user.IdleLogoutDeviceOverrides.Add(new IdleLogoutDeviceOverride(userId, deviceId, subject));
+        }
+
+        db.SecurityAuditRecords.Add(NewAudit("IdleLogoutPolicyChanged", "Administrator", "Success", actorUserId, userId, null, true, $"Enabled={policy.Enabled}; Minutes={policy.Minutes}; Scope={policy.ScopeMode}"));
+        await db.SaveChangesAsync().ConfigureAwait(false);
     }
 
     public async Task<IReadOnlyList<TrustedDeviceDto>> QueryAsync(string? search, Guid? userId, string? state)

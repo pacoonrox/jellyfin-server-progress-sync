@@ -67,7 +67,6 @@ namespace MediaBrowser.Model.Users
             SyncPlayAccess = SyncPlayUserAccessType.CreateAndJoinGroups;
             TwoFactorAuthenticationPolicy = TwoFactorAuthenticationPolicy.Disabled;
             InactiveLogoutMinutes = 0;
-            InactiveLogoutScope = InactiveLogoutScope.Device;
         }
 
         /// <summary>
@@ -205,13 +204,10 @@ namespace MediaBrowser.Model.Users
         public TwoFactorAuthenticationPolicy TwoFactorAuthenticationPolicy { get; set; }
 
         /// <summary>
-        /// Gets or sets the automatic web logout timeout in inactive minutes. A value of 0 disables the timeout.
+        /// Gets or sets the effective automatic idle logout timeout in minutes for this user's own client-side
+        /// inactivity watcher. This is a read-only, computed value (0 when idle logout is disabled for this user);
+        /// configure idle logout via <c>DeviceApproval/Admin/Users/{userId}/IdleLogoutPolicy</c>, not this property.
         /// </summary>
         public int InactiveLogoutMinutes { get; set; }
-
-        /// <summary>
-        /// Gets or sets whether inactivity logs out one device or every device for the user.
-        /// </summary>
-        public InactiveLogoutScope InactiveLogoutScope { get; set; }
     }
 }

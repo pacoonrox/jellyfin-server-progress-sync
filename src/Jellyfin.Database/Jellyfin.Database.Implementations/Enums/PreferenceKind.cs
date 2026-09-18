@@ -101,12 +101,17 @@ public enum PreferenceKind
     TwoFactorAuthenticationFailedAttemptCount = 18,
 
     /// <summary>
-    /// Legacy per-user automatic logout timeout, retained for database compatibility.
+    /// The user's automatic idle logout timeout, in minutes.
     /// </summary>
-    InactiveLogoutMinutes = 19,
+    IdleLogoutMinutes = 19,
 
     /// <summary>
-    /// Legacy per-user inactivity logout scope, retained for database compatibility.
+    /// The user's idle logout scope mode (which of their devices the timeout applies to).
     /// </summary>
-    InactiveLogoutScope = 20
+    IdleLogoutScopeMode = 20,
+
+    /// <summary>
+    /// The selected device id list used by the AllDevicesExceptSelected/NoDevicesExceptSelected idle-logout scope modes.
+    /// </summary>
+    IdleLogoutSelectedDeviceIds = 21
 }

@@ -31,6 +31,7 @@ namespace Jellyfin.Database.Implementations.Entities
             PasswordResetProviderId = passwordResetProviderId;
 
             AccessSchedules = new HashSet<AccessSchedule>();
+            IdleLogoutDeviceOverrides = new HashSet<IdleLogoutDeviceOverride>();
             DisplayPreferences = new HashSet<DisplayPreferences>();
             ItemDisplayPreferences = new HashSet<ItemDisplayPreferences>();
             // Groups = new HashSet<Group>();
@@ -309,6 +310,11 @@ namespace Jellyfin.Database.Implementations.Entities
         /// Gets the list of access schedules this user has.
         /// </summary>
         public virtual ICollection<AccessSchedule> AccessSchedules { get; private set; }
+
+        /// <summary>
+        /// Gets the list of explicit per-device idle-logout overrides this user has (SelectedManual scope mode).
+        /// </summary>
+        public virtual ICollection<IdleLogoutDeviceOverride> IdleLogoutDeviceOverrides { get; private set; }
 
         /// <summary>
         /// Gets the list of item display preferences.

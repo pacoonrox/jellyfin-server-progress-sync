@@ -65,8 +65,27 @@ public sealed class TrustedDevicePolicyDto
 {
     public bool Enabled { get; set; }
     public int DefaultTrustDays { get; set; }
-    public int InactiveLogoutMinutes { get; set; }
-    public InactiveLogoutScope InactiveLogoutScope { get; set; }
+}
+
+public sealed class IdleLogoutDeviceDto
+{
+    public string DeviceId { get; set; } = string.Empty;
+    public string FriendlyName { get; set; } = string.Empty;
+    public string AppName { get; set; } = string.Empty;
+    public DateTime DateLastActivity { get; set; }
+    public bool HasExplicitOverride { get; set; }
+    public bool IsCurrentOverrideSubject { get; set; }
+}
+
+public sealed class IdleLogoutPolicyDto
+{
+    public bool Enabled { get; set; }
+    public int Minutes { get; set; } = 5;
+    public InactiveLogoutScope ScopeMode { get; set; } = InactiveLogoutScope.AllDevices;
+    public string[] SelectedDeviceIds { get; set; } = Array.Empty<string>();
+    public bool ManualFutureDefaultSubject { get; set; } = true;
+    public Dictionary<string, bool> DeviceOverrides { get; set; } = new();
+    public IReadOnlyList<IdleLogoutDeviceDto> Devices { get; set; } = Array.Empty<IdleLogoutDeviceDto>();
 }
 
 public sealed class TrustedDeviceUpdateRequest
