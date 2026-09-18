@@ -3,6 +3,10 @@
 
   <PropertyGroup>
     <Nullable>enable</Nullable>
+    <!-- Arch/Garuda's packaged .NET 10 SDK ships without the Microsoft.AspNetCore.App
+         prune-package-data used by restore-time reference pruning, which otherwise fails
+         every build with NETSDK1226. Harmless to skip: it only disables that optimization. -->
+    <AllowMissingPrunePackageData>true</AllowMissingPrunePackageData>
   </PropertyGroup>
 
   <PropertyGroup>
