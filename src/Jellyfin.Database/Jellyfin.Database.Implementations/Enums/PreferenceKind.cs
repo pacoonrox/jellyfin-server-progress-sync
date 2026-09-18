@@ -103,5 +103,10 @@ public enum PreferenceKind
     /// <summary>
     /// The user's automatic logout timeout in inactive minutes.
     /// </summary>
-    InactiveLogoutMinutes = 19
+    InactiveLogoutMinutes = 19,
+
+    /// <summary>
+    /// Whether an automatic inactivity logout applies to one device or every device for the user.
+    /// </summary>
+    InactiveLogoutScope = 20
 }

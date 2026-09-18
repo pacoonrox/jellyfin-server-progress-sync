@@ -562,7 +562,8 @@ namespace Jellyfin.Server.Implementations.Users
                     BlockedMediaFolders = user.GetPreferenceValues<Guid>(PreferenceKind.BlockedMediaFolders),
                     BlockUnratedItems = user.GetPreferenceValues<UnratedItem>(PreferenceKind.BlockUnratedItems),
                     TwoFactorAuthenticationPolicy = user.GetTwoFactorAuthenticationPolicy(),
-                    InactiveLogoutMinutes = user.GetInactiveLogoutMinutes()
+                    InactiveLogoutMinutes = user.GetInactiveLogoutMinutes(),
+                    InactiveLogoutScope = user.GetInactiveLogoutScope()
                 }
             };
         }
@@ -915,6 +916,7 @@ namespace Jellyfin.Server.Implementations.Users
                     user.SyncPlayAccess = policy.SyncPlayAccess;
                     user.SetTwoFactorAuthenticationPolicy(policy.TwoFactorAuthenticationPolicy);
                     user.SetInactiveLogoutMinutes(policy.InactiveLogoutMinutes);
+                    user.SetInactiveLogoutScope(policy.InactiveLogoutScope);
                     user.SetPermission(PermissionKind.IsAdministrator, policy.IsAdministrator);
                     user.SetPermission(PermissionKind.IsHidden, policy.IsHidden);
                     user.SetPermission(PermissionKind.IsDisabled, policy.IsDisabled);

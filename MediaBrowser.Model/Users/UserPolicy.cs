@@ -67,6 +67,7 @@ namespace MediaBrowser.Model.Users
             SyncPlayAccess = SyncPlayUserAccessType.CreateAndJoinGroups;
             TwoFactorAuthenticationPolicy = TwoFactorAuthenticationPolicy.Disabled;
             InactiveLogoutMinutes = 0;
+            InactiveLogoutScope = InactiveLogoutScope.Device;
         }
 
         /// <summary>
@@ -207,5 +208,10 @@ namespace MediaBrowser.Model.Users
         /// Gets or sets the automatic web logout timeout in inactive minutes. A value of 0 disables the timeout.
         /// </summary>
         public int InactiveLogoutMinutes { get; set; }
+
+        /// <summary>
+        /// Gets or sets whether inactivity logs out one device or every device for the user.
+        /// </summary>
+        public InactiveLogoutScope InactiveLogoutScope { get; set; }
     }
 }

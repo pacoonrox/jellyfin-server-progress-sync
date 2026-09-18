@@ -234,6 +234,27 @@ public static class UserEntityExtensions
         => entity.SetPreference(PreferenceKind.InactiveLogoutMinutes, new[] { Math.Max(0, minutes).ToString(CultureInfo.InvariantCulture) });
 
     /// <summary>
+    /// Gets the devices affected when this user reaches the inactivity timeout.
+    /// </summary>
+    /// <param name="entity">The entity to read.</param>
+    /// <returns>The configured inactivity logout scope.</returns>
+    public static InactiveLogoutScope GetInactiveLogoutScope(this User entity)
+    {
+        var value = entity.GetPreference(PreferenceKind.InactiveLogoutScope).FirstOrDefault();
+        return Enum.TryParse<InactiveLogoutScope>(value, true, out var scope) && Enum.IsDefined(scope)
+            ? scope
+            : InactiveLogoutScope.Device;
+    }
+
+    /// <summary>
+    /// Sets the devices affected when this user reaches the inactivity timeout.
+    /// </summary>
+    /// <param name="entity">The entity to update.</param>
+    /// <param name="scope">The inactivity logout scope.</param>
+    public static void SetInactiveLogoutScope(this User entity, InactiveLogoutScope scope)
+        => entity.SetPreference(PreferenceKind.InactiveLogoutScope, new[] { scope.ToString() });
+
+    /// <summary>
     /// Checks whether this user is currently allowed to use the server.
     /// </summary>
     /// <param name="entity">The entity to update.</param>

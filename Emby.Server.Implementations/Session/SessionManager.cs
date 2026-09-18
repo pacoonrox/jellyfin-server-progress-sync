@@ -735,6 +735,7 @@ namespace Emby.Server.Implementations.Session
         private async void CheckForInactiveLogout(object state)
         {
             var now = DateTime.UtcNow;
+            var usersLoggedOut = new HashSet<Guid>();
             var devicesWithLogoutPolicy = _deviceManager.GetDevices(new DeviceQuery())
                 .Items
                 .Select(device => new
@@ -752,6 +753,11 @@ namespace Emby.Server.Implementations.Session
             {
                 var device = item.Device;
                 var session = item.Session;
+
+                if (usersLoggedOut.Contains(device.UserId))
+                {
+                    continue;
+                }
 
                 if (session?.NowPlayingItem is not null && !session.PlayState.IsPaused)
                 {
@@ -779,12 +785,34 @@ namespace Emby.Server.Implementations.Session
                     continue;
                 }
 
-                _logger.LogInformation(
-                    "Logging out session {SessionId} for user {UserId} after {InactiveMinutes:N1} inactive minutes.",
-                    session?.Id ?? device.DeviceId,
-                    device.UserId,
-                    inactiveMinutes);
+                await LogoutInactiveDevices(item.User, device, inactiveMinutes).ConfigureAwait(false);
+                if (item.User.GetInactiveLogoutScope() == InactiveLogoutScope.User)
+                {
+                    usersLoggedOut.Add(device.UserId);
+                }
+            }
+        }
 
+        private async Task LogoutInactiveDevices(User user, Device inactiveDevice, double? inactiveMinutes = null)
+        {
+            var scope = user.GetInactiveLogoutScope();
+            var query = new DeviceQuery { UserId = user.Id };
+            if (scope == InactiveLogoutScope.Device)
+            {
+                query.DeviceId = inactiveDevice.DeviceId;
+            }
+
+            var devices = _deviceManager.GetDevices(query).Items;
+            _logger.LogInformation(
+                "Logging out {DeviceCount} access token(s) for inactive device {DeviceId} and user {UserId} with scope {InactiveLogoutScope} after {InactiveMinutes:N1} inactive minutes.",
+                devices.Count,
+                inactiveDevice.DeviceId,
+                user.Id,
+                scope,
+                inactiveMinutes);
+
+            foreach (var device in devices)
+            {
                 try
                 {
                     await _trustedDeviceManager.RequireFreshTwoFactorAsync(device.UserId, device.DeviceId).ConfigureAwait(false);
@@ -1980,6 +2008,38 @@ namespace Emby.Server.Implementations.Session
                     _logger.LogError(ex, "Error reporting session ended");
                 }
             }
+        }
+
+        /// <inheritdoc />
+        public async Task LogoutInactive(string accessToken)
+        {
+            CheckDisposed();
+
+            ArgumentException.ThrowIfNullOrEmpty(accessToken);
+
+            var device = _deviceManager.GetDevices(
+                new DeviceQuery
+                {
+                    Limit = 1,
+                    AccessToken = accessToken
+                }).Items.FirstOrDefault();
+            if (device is null)
+            {
+                return;
+            }
+
+            var user = _userManager.GetUserById(device.UserId);
+            if (user is null || user.GetInactiveLogoutMinutes() <= 0)
+            {
+                return;
+            }
+
+            if (await _trustedDeviceManager.IsAdministratorTrustedAsync(device.UserId, device.DeviceId).ConfigureAwait(false))
+            {
+                return;
+            }
+
+            await LogoutInactiveDevices(user, device).ConfigureAwait(false);
         }
 
         /// <inheritdoc />
