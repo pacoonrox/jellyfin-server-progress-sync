@@ -317,26 +317,64 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
     public async Task<IdleLogoutPolicyDto> GetIdleLogoutPolicyAsync(Guid userId)
     {
         var user = _users.GetUserById(userId) ?? throw new ResourceNotFoundException("User not found");
-        var devices = _devices.GetDevices(new DeviceQuery { UserId = userId }).Items;
+        var liveDevices = _devices.GetDevices(new DeviceQuery { UserId = userId }).Items;
         var overrides = user.IdleLogoutDeviceOverrides.ToDictionary(o => o.DeviceId, o => o.Subject, StringComparer.OrdinalIgnoreCase);
+        var selectedDeviceIds = user.GetPreference(PreferenceKind.IdleLogoutSelectedDeviceIds);
+
+        var devices = liveDevices.Select(device => new IdleLogoutDeviceDto
+        {
+            DeviceId = device.DeviceId,
+            FriendlyName = device.DeviceName,
+            AppName = device.AppName,
+            DateLastActivity = device.DateLastActivity,
+            HasExplicitOverride = overrides.ContainsKey(device.DeviceId),
+            IsCurrentOverrideSubject = overrides.TryGetValue(device.DeviceId, out var subject) && subject,
+            IsCurrentlyConnected = true
+        }).ToList();
+
+        // A device that is part of this policy (selected, excepted, or manually overridden) must stay
+        // listed even after it no longer has a live session -- e.g. because idle logout itself logged it
+        // out, which deletes its Device row. Otherwise the admin's selection would appear to silently
+        // vanish from the "included devices" section. Mirrors how TrustedDevice records outlive logout.
+        var knownDeviceIds = new HashSet<string>(devices.Select(d => d.DeviceId), StringComparer.OrdinalIgnoreCase);
+        var referencedDeviceIds = new HashSet<string>(selectedDeviceIds, StringComparer.OrdinalIgnoreCase);
+        referencedDeviceIds.UnionWith(overrides.Keys);
+        referencedDeviceIds.ExceptWith(knownDeviceIds);
+
+        if (referencedDeviceIds.Count > 0)
+        {
+            await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
+            var trustedDeviceInfo = await db.TrustedDevices
+                .Where(x => x.UserId.Equals(userId) && referencedDeviceIds.Contains(x.InstallationId))
+                .OrderByDescending(x => x.LastSeenUtc)
+                .ToListAsync()
+                .ConfigureAwait(false);
+
+            foreach (var deviceId in referencedDeviceIds)
+            {
+                var trustedDevice = trustedDeviceInfo.FirstOrDefault(x => string.Equals(x.InstallationId, deviceId, StringComparison.OrdinalIgnoreCase));
+                devices.Add(new IdleLogoutDeviceDto
+                {
+                    DeviceId = deviceId,
+                    FriendlyName = trustedDevice?.FriendlyName is { Length: > 0 } friendlyName ? friendlyName : deviceId,
+                    AppName = trustedDevice?.AppName ?? string.Empty,
+                    DateLastActivity = trustedDevice?.LastSeenUtc ?? DateTime.MinValue,
+                    HasExplicitOverride = overrides.ContainsKey(deviceId),
+                    IsCurrentOverrideSubject = overrides.TryGetValue(deviceId, out var overrideSubject) && overrideSubject,
+                    IsCurrentlyConnected = false
+                });
+            }
+        }
 
         return new IdleLogoutPolicyDto
         {
             Enabled = user.IsIdleLogoutEnabled(),
             Minutes = user.GetIdleLogoutMinutes(),
             ScopeMode = user.GetIdleLogoutScopeMode(),
-            SelectedDeviceIds = user.GetPreference(PreferenceKind.IdleLogoutSelectedDeviceIds),
+            SelectedDeviceIds = selectedDeviceIds,
             ManualFutureDefaultSubject = user.HasPermission(PermissionKind.IdleLogoutManualFutureDefault),
             DeviceOverrides = overrides,
-            Devices = devices.Select(device => new IdleLogoutDeviceDto
-            {
-                DeviceId = device.DeviceId,
-                FriendlyName = device.DeviceName,
-                AppName = device.AppName,
-                DateLastActivity = device.DateLastActivity,
-                HasExplicitOverride = overrides.ContainsKey(device.DeviceId),
-                IsCurrentOverrideSubject = overrides.TryGetValue(device.DeviceId, out var subject) && subject
-            }).ToArray()
+            Devices = devices
         };
     }
 

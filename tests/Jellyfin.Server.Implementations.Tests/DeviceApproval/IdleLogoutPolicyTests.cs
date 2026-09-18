@@ -158,6 +158,90 @@ public sealed class IdleLogoutPolicyTests : IDisposable
         Assert.Contains("device-x", policy.SelectedDeviceIds);
     }
 
+    [Fact]
+    public async Task GetIdleLogoutPolicyAsync_DeviceLoggedOut_StaysListedRatherThanDisappearing()
+    {
+        // A device included in the policy (via the "except selected" list) that later gets logged out --
+        // e.g. by idle logout itself, which deletes its Device row -- must not vanish from the admin's
+        // device picker. Mirrors how a TrustedDevice record outlives its Device row being removed.
+        var user = new User($"user-{Guid.NewGuid():N}", "default", "default");
+        await using (var context = CreateContext())
+        {
+            context.Users.Add(user);
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        await _subject.SetIdleLogoutPolicyAsync(
+            user.Id,
+            new IdleLogoutPolicyDto
+            {
+                Enabled = true,
+                Minutes = 5,
+                ScopeMode = InactiveLogoutScope.NoDevicesExceptSelected,
+                SelectedDeviceIds = new[] { "logged-out-device" }
+            },
+            Guid.NewGuid());
+
+        // No live Device row for "logged-out-device" at all (constructor already stubs GetDevices to
+        // return an empty list), simulating it having been deleted by Logout(Device).
+        var reloaded = ReloadTracked(user);
+        _users.Setup(m => m.GetUserById(user.Id)).Returns(reloaded);
+
+        var policy = await _subject.GetIdleLogoutPolicyAsync(user.Id);
+
+        Assert.Contains("logged-out-device", policy.SelectedDeviceIds);
+        var device = Assert.Single(policy.Devices);
+        Assert.Equal("logged-out-device", device.DeviceId);
+        Assert.False(device.IsCurrentlyConnected);
+        // No TrustedDevice metadata exists for it either, so the raw id is used as a readable fallback.
+        Assert.Equal("logged-out-device", device.FriendlyName);
+    }
+
+    [Fact]
+    public async Task GetIdleLogoutPolicyAsync_DeviceLoggedOut_UsesTrustedDeviceMetadataAsFallbackName()
+    {
+        var user = new User($"user-{Guid.NewGuid():N}", "default", "default");
+        await using (var context = CreateContext())
+        {
+            context.Users.Add(user);
+            context.TrustedDevices.Add(new TrustedDevice
+            {
+                UserId = user.Id,
+                InstallationId = "logged-out-device",
+                FriendlyName = "Dave's Phone",
+                AppName = "Jellyfin Mobile",
+                CredentialHash = "hash",
+                LastSeenUtc = DateTime.UtcNow
+            });
+            await context.SaveChangesAsync(TestContext.Current.CancellationToken);
+        }
+
+        user.IdleLogoutDeviceOverrides.Add(new IdleLogoutDeviceOverride(user.Id, "logged-out-device", true));
+        _users.Setup(m => m.GetUserById(user.Id)).Returns(user);
+
+        var policy = await _subject.GetIdleLogoutPolicyAsync(user.Id);
+
+        var device = Assert.Single(policy.Devices);
+        Assert.Equal("Dave's Phone", device.FriendlyName);
+        Assert.Equal("Jellyfin Mobile", device.AppName);
+        Assert.False(device.IsCurrentlyConnected);
+        Assert.True(device.HasExplicitOverride);
+        Assert.True(device.IsCurrentOverrideSubject);
+    }
+
+    private User ReloadTracked(User user)
+    {
+        // GetIdleLogoutPolicyAsync reads SelectedDeviceIds/overrides off the User entity handed back by
+        // IUserManager.GetUserById, so re-fetch a tracked instance the way UserManager's own UserQuery
+        // (with its .Include(u => u.IdleLogoutDeviceOverrides)) would, rather than reusing a stale one.
+        using var context = CreateContext();
+        return context.Users
+            .Include(u => u.Permissions)
+            .Include(u => u.Preferences)
+            .Include(u => u.IdleLogoutDeviceOverrides)
+            .First(u => u.Id.Equals(user.Id));
+    }
+
     public void Dispose() => _connection.Dispose();
 
     private JellyfinDbContext CreateContext()

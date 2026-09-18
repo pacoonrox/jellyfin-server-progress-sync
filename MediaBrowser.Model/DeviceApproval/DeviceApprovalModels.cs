@@ -75,6 +75,13 @@ public sealed class IdleLogoutDeviceDto
     public DateTime DateLastActivity { get; set; }
     public bool HasExplicitOverride { get; set; }
     public bool IsCurrentOverrideSubject { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this device currently has a live session/access token.
+    /// A device included in the idle-logout policy stays listed even after it is logged out (e.g. by
+    /// idle logout itself), so this is false for a device known only through its policy selection.
+    /// </summary>
+    public bool IsCurrentlyConnected { get; set; } = true;
 }
 
 public sealed class IdleLogoutPolicyDto
