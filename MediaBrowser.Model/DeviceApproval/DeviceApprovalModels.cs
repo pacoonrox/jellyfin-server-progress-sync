@@ -67,23 +67,6 @@ public sealed class TrustedDevicePolicyDto
     public int DefaultTrustDays { get; set; }
 }
 
-public sealed class IdleLogoutDeviceDto
-{
-    public string DeviceId { get; set; } = string.Empty;
-    public string FriendlyName { get; set; } = string.Empty;
-    public string AppName { get; set; } = string.Empty;
-    public DateTime DateLastActivity { get; set; }
-    public bool HasExplicitOverride { get; set; }
-    public bool IsCurrentOverrideSubject { get; set; }
-
-    /// <summary>
-    /// Gets or sets a value indicating whether this device currently has a live session/access token.
-    /// A device included in the idle-logout policy stays listed even after it is logged out (e.g. by
-    /// idle logout itself), so this is false for a device known only through its policy selection.
-    /// </summary>
-    public bool IsCurrentlyConnected { get; set; } = true;
-}
-
 public sealed class IdleLogoutPolicyDto
 {
     public bool Enabled { get; set; }
@@ -92,7 +75,6 @@ public sealed class IdleLogoutPolicyDto
     public string[] SelectedDeviceIds { get; set; } = Array.Empty<string>();
     public bool ManualFutureDefaultSubject { get; set; } = true;
     public Dictionary<string, bool> DeviceOverrides { get; set; } = new();
-    public IReadOnlyList<IdleLogoutDeviceDto> Devices { get; set; } = Array.Empty<IdleLogoutDeviceDto>();
 }
 
 public sealed class TrustedDeviceUpdateRequest

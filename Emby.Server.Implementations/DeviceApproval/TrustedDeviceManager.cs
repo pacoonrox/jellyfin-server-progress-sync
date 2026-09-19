@@ -5,7 +5,6 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
 using Jellyfin.Data;
-using Jellyfin.Data.Queries;
 using Jellyfin.Database.Implementations;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Entities.Security;
@@ -14,7 +13,6 @@ using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Authentication;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.DeviceApproval;
-using MediaBrowser.Controller.Devices;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.DeviceApproval;
 using Microsoft.EntityFrameworkCore;
@@ -28,14 +26,12 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
     private readonly IDbContextFactory<JellyfinDbContext> _dbFactory;
     private readonly IServerConfigurationManager _configuration;
     private readonly IUserManager _users;
-    private readonly IDeviceManager _devices;
 
-    public TrustedDeviceManager(IDbContextFactory<JellyfinDbContext> dbFactory, IServerConfigurationManager configuration, IUserManager users, IDeviceManager devices)
+    public TrustedDeviceManager(IDbContextFactory<JellyfinDbContext> dbFactory, IServerConfigurationManager configuration, IUserManager users)
     {
         _dbFactory = dbFactory;
         _configuration = configuration;
         _users = users;
-        _devices = devices;
     }
 
     public async Task<bool> ValidateAsync(Guid userId, string? credential, string installationId, string appName, string appVersion, string deviceName, string ipAddress)
@@ -316,65 +312,22 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
 
     public async Task<IdleLogoutPolicyDto> GetIdleLogoutPolicyAsync(Guid userId)
     {
+        // Device identity/naming for this policy is deliberately NOT computed here. The admin UI
+        // instead reuses the same TrustedDevice-backed list already shown in the Trusted devices
+        // table for this user (GET Admin/TrustedDevices), which is the durable, human-named
+        // inventory that survives a device's live session being logged out -- unlike the live
+        // Device table, which idle logout itself deletes rows from.
         var user = _users.GetUserById(userId) ?? throw new ResourceNotFoundException("User not found");
-        var liveDevices = _devices.GetDevices(new DeviceQuery { UserId = userId }).Items;
         var overrides = user.IdleLogoutDeviceOverrides.ToDictionary(o => o.DeviceId, o => o.Subject, StringComparer.OrdinalIgnoreCase);
-        var selectedDeviceIds = user.GetPreference(PreferenceKind.IdleLogoutSelectedDeviceIds);
-
-        var devices = liveDevices.Select(device => new IdleLogoutDeviceDto
-        {
-            DeviceId = device.DeviceId,
-            FriendlyName = device.DeviceName,
-            AppName = device.AppName,
-            DateLastActivity = device.DateLastActivity,
-            HasExplicitOverride = overrides.ContainsKey(device.DeviceId),
-            IsCurrentOverrideSubject = overrides.TryGetValue(device.DeviceId, out var subject) && subject,
-            IsCurrentlyConnected = true
-        }).ToList();
-
-        // A device that is part of this policy (selected, excepted, or manually overridden) must stay
-        // listed even after it no longer has a live session -- e.g. because idle logout itself logged it
-        // out, which deletes its Device row. Otherwise the admin's selection would appear to silently
-        // vanish from the "included devices" section. Mirrors how TrustedDevice records outlive logout.
-        var knownDeviceIds = new HashSet<string>(devices.Select(d => d.DeviceId), StringComparer.OrdinalIgnoreCase);
-        var referencedDeviceIds = new HashSet<string>(selectedDeviceIds, StringComparer.OrdinalIgnoreCase);
-        referencedDeviceIds.UnionWith(overrides.Keys);
-        referencedDeviceIds.ExceptWith(knownDeviceIds);
-
-        if (referencedDeviceIds.Count > 0)
-        {
-            await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
-            var trustedDeviceInfo = await db.TrustedDevices
-                .Where(x => x.UserId.Equals(userId) && referencedDeviceIds.Contains(x.InstallationId))
-                .OrderByDescending(x => x.LastSeenUtc)
-                .ToListAsync()
-                .ConfigureAwait(false);
-
-            foreach (var deviceId in referencedDeviceIds)
-            {
-                var trustedDevice = trustedDeviceInfo.FirstOrDefault(x => string.Equals(x.InstallationId, deviceId, StringComparison.OrdinalIgnoreCase));
-                devices.Add(new IdleLogoutDeviceDto
-                {
-                    DeviceId = deviceId,
-                    FriendlyName = trustedDevice?.FriendlyName is { Length: > 0 } friendlyName ? friendlyName : deviceId,
-                    AppName = trustedDevice?.AppName ?? string.Empty,
-                    DateLastActivity = trustedDevice?.LastSeenUtc ?? DateTime.MinValue,
-                    HasExplicitOverride = overrides.ContainsKey(deviceId),
-                    IsCurrentOverrideSubject = overrides.TryGetValue(deviceId, out var overrideSubject) && overrideSubject,
-                    IsCurrentlyConnected = false
-                });
-            }
-        }
 
         return new IdleLogoutPolicyDto
         {
             Enabled = user.IsIdleLogoutEnabled(),
             Minutes = user.GetIdleLogoutMinutes(),
             ScopeMode = user.GetIdleLogoutScopeMode(),
-            SelectedDeviceIds = selectedDeviceIds,
+            SelectedDeviceIds = user.GetPreference(PreferenceKind.IdleLogoutSelectedDeviceIds),
             ManualFutureDefaultSubject = user.HasPermission(PermissionKind.IdleLogoutManualFutureDefault),
-            DeviceOverrides = overrides,
-            Devices = devices
+            DeviceOverrides = overrides
         };
     }
 
