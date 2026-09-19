@@ -13,7 +13,7 @@ public interface ITrustedDeviceManager
     Task ObserveAsync(Guid userId, string? credential, string installationId, string appName, string appVersion, string deviceName, string platform, string osVersion, string ipAddress, bool directTwoFactorVerified = false);
     Task IssueAsync(Guid userId, string credential, string installationId, string source, Guid? actorUserId, bool administrator, DateTime? expiresUtc = null);
     Task SetSessionProvenanceAsync(string accessToken, string provenance, DateTime? directTwoFactorVerifiedUtc);
-    Task<bool> CanApproveAsync(string accessToken);
+    Task<bool> CanApproveAsync(string accessToken, bool isApiKey);
     Task<bool> IsAdministratorTrustedAsync(Guid userId, string installationId);
     Task<IdleLogoutPolicyDto> GetIdleLogoutPolicyAsync(Guid userId);
     Task SetIdleLogoutPolicyAsync(Guid userId, IdleLogoutPolicyDto policy, Guid actorUserId);

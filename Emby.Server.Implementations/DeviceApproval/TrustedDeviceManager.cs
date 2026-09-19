@@ -274,8 +274,17 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
         }
     }
 
-    public async Task<bool> CanApproveAsync(string accessToken)
+    public async Task<bool> CanApproveAsync(string accessToken, bool isApiKey)
     {
+        // An API key has no Devices-table row of its own; it represents a
+        // trusted server-integration caller (e.g. an admin-operated bot) and
+        // is always eligible to approve on behalf of whichever target user
+        // it specifies.
+        if (isApiKey)
+        {
+            return true;
+        }
+
         await using var db = await _dbFactory.CreateDbContextAsync().ConfigureAwait(false);
         // Device.IsActive is a legacy client capability flag and is false for many
         // valid Jellyfin sessions; token existence plus server provenance is the

@@ -90,20 +90,20 @@ public sealed class DeviceApprovalController : BaseJellyfinApiController
 
     [HttpPost("Queue/{requestId}/Select")]
     [Authorize]
-    public async Task<ActionResult<DeviceApprovalRequestDto>> Select([FromRoute] string requestId)
-        => Ok(await _portal.SelectAsync(requestId, User.GetUserId(), User.GetToken()!).ConfigureAwait(false));
+    public async Task<ActionResult<DeviceApprovalRequestDto>> Select([FromRoute] string requestId, [FromQuery] Guid? userId = null)
+        => Ok(await _portal.SelectAsync(requestId, RequestHelpers.GetUserId(User, userId), User.GetToken()!, User.GetIsApiKey()).ConfigureAwait(false));
 
     [HttpPost("Queue/{requestId}/Confirm")]
     [Authorize]
-    public async Task<ActionResult> Confirm([FromRoute] string requestId, [FromBody] DeviceApprovalConfirmRequest request)
+    public async Task<ActionResult> Confirm([FromRoute] string requestId, [FromBody] DeviceApprovalConfirmRequest request, [FromQuery] Guid? userId = null)
     {
-        await _portal.ConfirmAsync(requestId, User.GetUserId(), User.GetToken()!, request.Matches, request.TrustDevice).ConfigureAwait(false);
+        await _portal.ConfirmAsync(requestId, RequestHelpers.GetUserId(User, userId), User.GetToken()!, request.Matches, request.TrustDevice, User.GetIsApiKey()).ConfigureAwait(false);
         return NoContent();
     }
 
     [HttpPost("Queue/{requestId}/Deny")]
     [Authorize]
-    public async Task<ActionResult> Deny([FromRoute] string requestId) { await _portal.DenyAsync(requestId, User.GetUserId()).ConfigureAwait(false); return NoContent(); }
+    public async Task<ActionResult> Deny([FromRoute] string requestId, [FromQuery] Guid? userId = null) { await _portal.DenyAsync(requestId, RequestHelpers.GetUserId(User, userId)).ConfigureAwait(false); return NoContent(); }
 
     [HttpGet("Admin/Policy")]
     [Authorize(Roles = UserRoles.Administrator)]

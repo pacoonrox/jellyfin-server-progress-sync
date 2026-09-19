@@ -46,6 +46,7 @@ These endpoints require the server-side Administrator role. Queue IP addresses a
 - `GET /DeviceApproval/Queue` lists the shared queue for any authenticated user. Requesting IP is administrator-only.
 - `POST /DeviceApproval/Queue/{id}/Select` starts approval confirmation.
 - `POST /DeviceApproval/Queue/{id}/Confirm` accepts `{ Matches, TrustDevice }` and atomically completes the first valid approval.
+- Both `Select` and `Confirm` (and `Deny`) accept an optional `userId` query parameter. A regular user may only omit it or pass their own id; an Administrator-role caller, including a server API key, may target any user id, signing the device into that account instead of the caller's own. An API key is always eligible to approve regardless of its (nonexistent) device/session history.
 - `POST /QuickConnect/Initiate`, `GET /QuickConnect/Connect`, and `POST /Users/AuthenticateWithQuickConnect` provide native-client compatibility.
 - `POST /QuickConnect/Authorize?code=...` approves a legacy request for any authenticated user; it has no administrator-only role requirement.
 - Successfully authenticated Jellyfin clients are recorded regardless of login method. A client that was already authenticated before an update is recorded when it next establishes an active session; old token records are never scanned or imported. Seerr-family service connections are excluded. Clients without a reusable installation credential remain observed and do not gain a future trusted-device 2FA bypass.

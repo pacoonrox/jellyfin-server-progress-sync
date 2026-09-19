@@ -87,10 +87,10 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
         return _requests.Values.Where(x => x.State is DeviceApprovalState.Pending or DeviceApprovalState.Selected).OrderBy(x => x.CreatedUtc).Select(x => ToDto(x, includeIpAddress, false)).ToArray();
     }
 
-    public async Task<DeviceApprovalRequestDto> SelectAsync(string requestId, Guid actorUserId, string actorAccessToken)
+    public async Task<DeviceApprovalRequestDto> SelectAsync(string requestId, Guid actorUserId, string actorAccessToken, bool isApiKey)
     {
         AssertEnabled(); Expire();
-        if (!await _trust.CanApproveAsync(actorAccessToken).ConfigureAwait(false))
+        if (!await _trust.CanApproveAsync(actorAccessToken, isApiKey).ConfigureAwait(false))
         {
             await _trust.AuditAsync("PortalSelection", "Portal", "RejectedProvenance", actorUserId, null, null, false).ConfigureAwait(false);
             throw new AuthenticationException("This session is not eligible to approve another device");
@@ -111,10 +111,10 @@ public sealed class DeviceApprovalPortal : IDeviceApprovalPortal
         finally { _gate.Release(); }
     }
 
-    public async Task<AuthenticationResult?> ConfirmAsync(string requestId, Guid actorUserId, string actorAccessToken, bool matches, bool trustDevice)
+    public async Task<AuthenticationResult?> ConfirmAsync(string requestId, Guid actorUserId, string actorAccessToken, bool matches, bool trustDevice, bool isApiKey)
     {
         AssertEnabled(); Expire();
-        if (!await _trust.CanApproveAsync(actorAccessToken).ConfigureAwait(false)) throw new AuthenticationException("Session is not eligible to approve devices");
+        if (!await _trust.CanApproveAsync(actorAccessToken, isApiKey).ConfigureAwait(false)) throw new AuthenticationException("Session is not eligible to approve devices");
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {

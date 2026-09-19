@@ -120,7 +120,14 @@ public sealed class TrustedDeviceManagerTests : IDisposable
     {
         var token = await AddSession(provenance);
 
-        Assert.Equal(expected, await _subject.CanApproveAsync(token));
+        Assert.Equal(expected, await _subject.CanApproveAsync(token, false));
+    }
+
+    [Fact]
+    public async Task CanApproveAsync_ApiKeyBypassesDeviceLookup()
+    {
+        Assert.True(await _subject.CanApproveAsync("token-with-no-device-row", isApiKey: true));
+        Assert.False(await _subject.CanApproveAsync("token-with-no-device-row", isApiKey: false));
     }
 
     public void Dispose() => _connection.Dispose();

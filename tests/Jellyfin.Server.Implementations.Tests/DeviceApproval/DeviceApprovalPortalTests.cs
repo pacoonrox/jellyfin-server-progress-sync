@@ -30,7 +30,7 @@ public sealed class DeviceApprovalPortalTests
     {
         var configuration = new Mock<IServerConfigurationManager>();
         configuration.SetupGet(x => x.Configuration).Returns(new ServerConfiguration { TrustedDevicesEnabled = true });
-        _trust.Setup(x => x.CanApproveAsync(It.IsAny<string>())).ReturnsAsync(true);
+        _trust.Setup(x => x.CanApproveAsync(It.IsAny<string>(), It.IsAny<bool>())).ReturnsAsync(true);
         _trust.Setup(x => x.AuditAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<long?>(), It.IsAny<bool>(), It.IsAny<string>())).Returns(Task.CompletedTask);
         _subject = new DeviceApprovalPortal(configuration.Object, _trust.Object, new Mock<ISessionManager>().Object, new Mock<IUserManager>().Object, _time);
     }
@@ -63,11 +63,11 @@ public sealed class DeviceApprovalPortalTests
     [Fact]
     public async Task PortalProvenance_CannotSelectAnotherDevice()
     {
-        _trust.Setup(x => x.CanApproveAsync("portal-token")).ReturnsAsync(false);
+        _trust.Setup(x => x.CanApproveAsync("portal-token", false)).ReturnsAsync(false);
         await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
         var id = Assert.Single(_subject.GetQueue(false)).Id;
 
-        await Assert.ThrowsAsync<AuthenticationException>(() => _subject.SelectAsync(id, Guid.NewGuid(), "portal-token"));
+        await Assert.ThrowsAsync<AuthenticationException>(() => _subject.SelectAsync(id, Guid.NewGuid(), "portal-token", false));
     }
 
     [Fact]
@@ -76,11 +76,23 @@ public sealed class DeviceApprovalPortalTests
         await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
         var actor = Guid.NewGuid();
         var id = Assert.Single(_subject.GetQueue(false)).Id;
-        var selected = await _subject.SelectAsync(id, actor, "direct");
+        var selected = await _subject.SelectAsync(id, actor, "direct", false);
 
         Assert.Equal(DeviceApprovalState.Selected, selected.State);
-        Assert.Null(await _subject.ConfirmAsync(id, actor, "direct", false, false));
+        Assert.Null(await _subject.ConfirmAsync(id, actor, "direct", false, false, false));
         Assert.Equal(DeviceApprovalState.Pending, Assert.Single(_subject.GetQueue(false)).State);
+    }
+
+    [Fact]
+    public async Task ApiKeyFlag_IsForwardedToTrustProvenanceCheck()
+    {
+        _trust.Setup(x => x.CanApproveAsync("api-key-token", true)).ReturnsAsync(true);
+        _trust.Setup(x => x.CanApproveAsync("api-key-token", false)).ReturnsAsync(false);
+        await _subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
+        var id = Assert.Single(_subject.GetQueue(false)).Id;
+
+        var selected = await _subject.SelectAsync(id, Guid.NewGuid(), "api-key-token", true);
+        Assert.Equal(DeviceApprovalState.Selected, selected.State);
     }
 
     [Fact]
@@ -96,13 +108,13 @@ public sealed class DeviceApprovalPortalTests
         var subject = new DeviceApprovalPortal(configuration.Object, _trust.Object, sessions.Object, users.Object, _time);
 
         var first = await subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
-        await subject.SelectAsync(first.Id, user.Id, "direct");
-        await subject.ConfirmAsync(first.Id, user.Id, "direct", true, false);
+        await subject.SelectAsync(first.Id, user.Id, "direct", false);
+        await subject.ConfirmAsync(first.Id, user.Id, "direct", true, false, false);
         _trust.Verify(x => x.IssueAsync(It.IsAny<Guid>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Guid?>(), It.IsAny<bool>(), It.IsAny<DateTime?>()), Times.Never);
 
         var second = await subject.InitiateAsync(_client, Request(), "192.0.2.10", "jellyfin.example.test");
-        await subject.SelectAsync(second.Id, user.Id, "direct");
-        await subject.ConfirmAsync(second.Id, user.Id, "direct", true, true);
+        await subject.SelectAsync(second.Id, user.Id, "direct", false);
+        await subject.ConfirmAsync(second.Id, user.Id, "direct", true, true, false);
         _trust.Verify(x => x.IssueAsync(user.Id, It.IsAny<string>(), "installation-a", "Portal", user.Id, false, null), Times.Once);
     }
 
@@ -113,7 +125,7 @@ public sealed class DeviceApprovalPortalTests
         var id = Assert.Single(_subject.GetQueue(false)).Id;
         _time.Advance(TimeSpan.FromMinutes(5));
 
-        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _subject.SelectAsync(id, Guid.NewGuid(), "direct"));
+        await Assert.ThrowsAsync<ResourceNotFoundException>(() => _subject.SelectAsync(id, Guid.NewGuid(), "direct", false));
         Assert.Empty(_subject.GetQueue(false));
     }
 
@@ -140,7 +152,7 @@ public sealed class DeviceApprovalPortalTests
 
     private async Task<bool> TrySelect(string id, Guid actor, string token)
     {
-        try { await _subject.SelectAsync(id, actor, token); return true; }
+        try { await _subject.SelectAsync(id, actor, token, false); return true; }
         catch (InvalidOperationException) { return false; }
     }
 

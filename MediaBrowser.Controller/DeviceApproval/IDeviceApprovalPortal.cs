@@ -15,8 +15,8 @@ public interface IDeviceApprovalPortal
     Task<DeviceApprovalRequestDto> InitiateAsync(AuthorizationInfo client, DeviceApprovalInitiateRequest request, string ipAddress, string connectionDomain);
     DeviceApprovalRequestDto GetStatus(string requestSecret);
     IReadOnlyList<DeviceApprovalRequestDto> GetQueue(bool includeIpAddress);
-    Task<DeviceApprovalRequestDto> SelectAsync(string requestId, Guid actorUserId, string actorAccessToken);
-    Task<AuthenticationResult?> ConfirmAsync(string requestId, Guid actorUserId, string actorAccessToken, bool matches, bool trustDevice);
+    Task<DeviceApprovalRequestDto> SelectAsync(string requestId, Guid actorUserId, string actorAccessToken, bool isApiKey);
+    Task<AuthenticationResult?> ConfirmAsync(string requestId, Guid actorUserId, string actorAccessToken, bool matches, bool trustDevice, bool isApiKey);
     Task CancelAsync(string requestSecret);
     Task DenyAsync(string requestId, Guid actorUserId);
 }
