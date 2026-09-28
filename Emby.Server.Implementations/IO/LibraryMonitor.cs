@@ -339,6 +339,24 @@ namespace Emby.Server.Implementations.IO
         {
             try
             {
+                // Creating or removing an entry inside a directory updates that directory's own
+                // mtime, which makes the OS report a spurious "Changed" event for the watched
+                // directory itself (not just the actual new/removed file, which already raises
+                // its own Created/Deleted event with its real path). When the watched directory
+                // happens to be a whole library root, treating this as a real change causes
+                // ChangedExternally() to run a full recursive re-scan of the entire library
+                // instead of just the item that actually changed. The real change is already
+                // captured by the Created/Deleted/Renamed event, so this one is always noise.
+                if (e.ChangeType == WatcherChangeTypes.Changed
+                    && sender is FileSystemWatcher watcher
+                    && string.Equals(
+                        e.FullPath.TrimEnd(Path.DirectorySeparatorChar),
+                        watcher.Path.TrimEnd(Path.DirectorySeparatorChar),
+                        StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
                 ReportFileSystemChanged(e.FullPath);
             }
             catch (Exception ex)
@@ -414,8 +432,12 @@ namespace Emby.Server.Implementations.IO
                         return;
                     }
 
-                    // They are siblings. Rebase the refresher to the parent folder.
+                    // They are siblings. Rebase the refresher to the parent folder - but never as
+                    // far up as a watched library root, since refreshing that means a full
+                    // recursive re-scan of the entire library instead of just the two folders
+                    // that actually changed.
                     if (parentPath is not null
+                        && !_fileSystemWatchers.ContainsKey(parentPath)
                         && Path.GetDirectoryName(refresher.Path.AsSpan()).Equals(parentPath, StringComparison.Ordinal))
                     {
                         refresher.ResetPath(parentPath, path);
