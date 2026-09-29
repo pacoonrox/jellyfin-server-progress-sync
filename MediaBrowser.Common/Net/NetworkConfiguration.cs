@@ -173,4 +173,19 @@ public class NetworkConfiguration
     /// Gets or sets a value indicating whether <seealso cref="RemoteIPFilter"/> contains a blacklist or a whitelist. Default is a whitelist.
     /// </summary>
     public bool IsRemoteIPFilterBlacklist { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether local (LAN) network access is restricted to only the addresses/subnets
+    /// listed in <see cref="LocalIPFilter"/>. Connections from the server itself (loopback) are always allowed
+    /// regardless of this setting.
+    /// </summary>
+    public bool EnableLocalNetworkAccessControl { get; set; }
+
+    /// <summary>
+    /// Gets or sets the allowlist for local (LAN) IP connectivity, used only when
+    /// <see cref="EnableLocalNetworkAccessControl"/> is enabled. Accepts individual IPs or IP/netmask subnets,
+    /// e.g. the internal docker network(s) other integrated containers use to reach the server, and specific
+    /// trusted LAN devices.
+    /// </summary>
+    public string[] LocalIPFilter { get; set; } = Array.Empty<string>();
 }

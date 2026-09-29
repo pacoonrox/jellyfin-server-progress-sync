@@ -54,7 +54,9 @@ public class IPBasedAccessValidationMiddleware
                 HttpUtility.UrlEncode(httpContext.Request.Path),
                 remoteIP,
                 result);
-            httpContext.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            httpContext.Response.StatusCode = result == RemoteAccessPolicyResult.RejectDueToNotAllowlistedLocalIP
+                ? StatusCodes.Status404NotFound
+                : StatusCodes.Status503ServiceUnavailable;
             return;
         }
 

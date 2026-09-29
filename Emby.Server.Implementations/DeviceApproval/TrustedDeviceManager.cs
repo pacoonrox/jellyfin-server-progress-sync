@@ -295,10 +295,12 @@ public sealed class TrustedDeviceManager : ITrustedDeviceManager
             return false;
         }
 
-        // The endpoint already requires an authenticated Jellyfin user. Any
-        // current session may approve another request, including sessions that
-        // were themselves created through Quick Sign-On.
-        return true;
+        // A session whose own AuthenticationProvenance is "Portal" (i.e. it got in
+        // through Quick Connect, not a password/2FA/trusted-device login) must not
+        // be allowed to approve further devices -- otherwise one Quick Connect
+        // session could bootstrap-approve an unlimited chain of new ones without
+        // anyone ever re-entering a password or TOTP code.
+        return device.AuthenticationProvenance != "Portal";
     }
 
     public async Task<bool> IsAdministratorTrustedAsync(Guid userId, string installationId)

@@ -26,4 +26,9 @@ public enum RemoteAccessPolicyResult
     /// The connection should be rejected since it is from a remote IP that is not in the allowlist.
     /// </summary>
     RejectDueToNotAllowlistedRemoteIP,
+
+    /// <summary>
+    /// The connection should be rejected since it is from a local (LAN) IP that is not in the local access allowlist.
+    /// </summary>
+    RejectDueToNotAllowlistedLocalIP,
 }

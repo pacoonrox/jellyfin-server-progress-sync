@@ -182,6 +182,11 @@ namespace Jellyfin.Server
                 }
 
                 mainApp.UseForwardedHeaders();
+
+                // Runs before anything else in the pipeline: reject disallowed connections
+                // (e.g. non-whitelisted LAN IPs) before any routing, auth, or handler work happens.
+                mainApp.UseIPBasedAccessValidation();
+
                 mainApp.UseMiddleware<ExceptionMiddleware>();
 
                 mainApp.UseMiddleware<ResponseTimeMiddleware>();
@@ -235,7 +240,6 @@ namespace Jellyfin.Server
                 mainApp.UseRouting();
                 mainApp.UseAuthorization();
 
-                mainApp.UseIPBasedAccessValidation();
                 mainApp.UseWebSocketHandler();
                 mainApp.UseServerStartupMessage();
 

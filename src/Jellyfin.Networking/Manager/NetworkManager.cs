@@ -45,6 +45,12 @@ public class NetworkManager : INetworkManager, IDisposable
     private IReadOnlyList<IPNetwork> _remoteAddressFilter;
 
     /// <summary>
+    /// Allowlist of local (LAN) subnets/IPs permitted to access the server when
+    /// <see cref="NetworkConfiguration.EnableLocalNetworkAccessControl"/> is enabled.
+    /// </summary>
+    private IReadOnlyList<IPNetwork> _localAddressFilter;
+
+    /// <summary>
     /// Used to stop "event-racing conditions".
     /// </summary>
     private bool _eventfire;
@@ -89,6 +95,7 @@ public class NetworkManager : INetworkManager, IDisposable
         _publishedServerUrls = new List<PublishedServerUriOverride>();
         _networkEventLock = new();
         _remoteAddressFilter = new List<IPNetwork>();
+        _localAddressFilter = new List<IPNetwork>();
 
         _ = bool.TryParse(startupConfig[DetectNetworkChangeKey], out var detectNetworkChange);
 
@@ -463,6 +470,44 @@ public class NetworkManager : INetworkManager, IDisposable
     }
 
     /// <summary>
+    /// Initializes the local (LAN) access allowlist values.
+    /// </summary>
+    private void InitializeLocal(NetworkConfiguration config)
+    {
+        lock (_initLock)
+        {
+            // Parse config values into filter collection
+            var localIPFilter = config.LocalIPFilter;
+            if (localIPFilter.Length != 0 && !string.IsNullOrWhiteSpace(localIPFilter[0]))
+            {
+                // Parse all IPs with netmask to a subnet
+                var localAddressFilter = new List<IPNetwork>();
+                var localFilteredSubnets = localIPFilter.Where(x => x.Contains('/', StringComparison.OrdinalIgnoreCase)).ToArray();
+                if (NetworkUtils.TryParseToSubnets(localFilteredSubnets, out var localAddressFilterResult, false))
+                {
+                    localAddressFilter = localAddressFilterResult.Select(x => x.Subnet).ToList();
+                }
+
+                // Parse everything else as an IP and construct subnet with a single IP
+                var localFilteredIPs = localIPFilter.Where(x => !x.Contains('/', StringComparison.OrdinalIgnoreCase));
+                foreach (var ip in localFilteredIPs)
+                {
+                    if (IPAddress.TryParse(ip, out var ipp))
+                    {
+                        localAddressFilter.Add(new IPNetwork(ipp, ipp.AddressFamily == AddressFamily.InterNetwork ? NetworkConstants.MinimumIPv4PrefixSize : NetworkConstants.MinimumIPv6PrefixSize));
+                    }
+                }
+
+                _localAddressFilter = localAddressFilter;
+            }
+            else
+            {
+                _localAddressFilter = new List<IPNetwork>();
+            }
+        }
+    }
+
+    /// <summary>
     /// Parses the user defined overrides into the dictionary object.
     /// Overrides are the equivalent of localised publishedServerUrl, enabling
     /// different addresses to be advertised over different subnets.
@@ -650,6 +695,7 @@ public class NetworkManager : INetworkManager, IDisposable
 
         InitializeLan(config);
         InitializeRemote(config);
+        InitializeLocal(config);
 
         if (string.IsNullOrEmpty(MockNetworkSettings))
         {
@@ -733,7 +779,17 @@ public class NetworkManager : INetworkManager, IDisposable
         var config = _configurationManager.GetNetworkConfiguration();
         if (IsInLocalNetwork(remoteIP))
         {
-            return RemoteAccessPolicyResult.Allow;
+            if (!config.EnableLocalNetworkAccessControl)
+            {
+                return RemoteAccessPolicyResult.Allow;
+            }
+
+            // Deny-by-default for LAN-origin connections: only addresses/subnets explicitly
+            // listed in LocalIPFilter (e.g. integrated docker networks, trusted devices) are let through.
+            var isLocalAllowlisted = _localAddressFilter.Any(localNetwork => NetworkUtils.SubnetContainsAddress(localNetwork, remoteIP));
+            return isLocalAllowlisted
+                ? RemoteAccessPolicyResult.Allow
+                : RemoteAccessPolicyResult.RejectDueToNotAllowlistedLocalIP;
         }
 
         if (!config.EnableRemoteAccess)

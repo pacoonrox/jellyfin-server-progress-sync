@@ -115,8 +115,10 @@ public sealed class TrustedDeviceManagerTests : IDisposable
     [Theory]
     [InlineData("Legacy", true)]
     [InlineData("TrustedDevice", true)]
-    [InlineData("Portal", true)]
-    public async Task ApprovalEligibility_AllowsEveryAuthenticatedSession(string provenance, bool expected)
+    [InlineData("DirectPassword", true)]
+    [InlineData("DirectTwoFactor", true)]
+    [InlineData("Portal", false)]
+    public async Task ApprovalEligibility_RejectsPortalProvenance(string provenance, bool expected)
     {
         var token = await AddSession(provenance);
 
