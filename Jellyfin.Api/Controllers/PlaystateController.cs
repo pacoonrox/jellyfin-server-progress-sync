@@ -6,6 +6,7 @@ using Jellyfin.Api.Extensions;
 using Jellyfin.Api.Helpers;
 using Jellyfin.Api.ModelBinders;
 using Jellyfin.Database.Implementations.Entities;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
@@ -33,6 +34,7 @@ public class PlaystateController : BaseJellyfinApiController
     private readonly ISessionManager _sessionManager;
     private readonly ILogger<PlaystateController> _logger;
     private readonly ITranscodeManager _transcodeManager;
+    private readonly IDisplayPreferencesManager _recommendationPreferences;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PlaystateController"/> class.
@@ -43,13 +45,15 @@ public class PlaystateController : BaseJellyfinApiController
     /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
     /// <param name="loggerFactory">Instance of the <see cref="ILoggerFactory"/> interface.</param>
     /// <param name="transcodeManager">Instance of the <see cref="ITranscodeManager"/> interface.</param>
+    /// <param name="recommendationPreferences">The per-user recommendation preferences.</param>
     public PlaystateController(
         IUserManager userManager,
         IUserDataManager userDataRepository,
         ILibraryManager libraryManager,
         ISessionManager sessionManager,
         ILoggerFactory loggerFactory,
-        ITranscodeManager transcodeManager)
+        ITranscodeManager transcodeManager,
+        IDisplayPreferencesManager recommendationPreferences)
     {
         _userManager = userManager;
         _userDataRepository = userDataRepository;
@@ -58,6 +62,7 @@ public class PlaystateController : BaseJellyfinApiController
         _logger = loggerFactory.CreateLogger<PlaystateController>();
 
         _transcodeManager = transcodeManager;
+        _recommendationPreferences = recommendationPreferences;
     }
 
     /// <summary>
@@ -205,6 +210,7 @@ public class PlaystateController : BaseJellyfinApiController
         playbackStartInfo.PlayMethod = ValidatePlayMethod(playbackStartInfo.PlayMethod, playbackStartInfo.PlaySessionId);
         playbackStartInfo.SessionId = await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
         await _sessionManager.OnPlaybackStart(playbackStartInfo).ConfigureAwait(false);
+        ReaddRecommendationOnPlayback(playbackStartInfo.ItemId);
         return NoContent();
     }
 
@@ -301,7 +307,19 @@ public class PlaystateController : BaseJellyfinApiController
         playbackStartInfo.PlayMethod = ValidatePlayMethod(playbackStartInfo.PlayMethod, playbackStartInfo.PlaySessionId);
         playbackStartInfo.SessionId = await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
         await _sessionManager.OnPlaybackStart(playbackStartInfo).ConfigureAwait(false);
+        ReaddRecommendationOnPlayback(playbackStartInfo.ItemId);
         return NoContent();
+    }
+
+    private void ReaddRecommendationOnPlayback(Guid itemId)
+    {
+        var userId = User.GetUserId();
+        var user = _userManager.GetUserById(userId);
+        var item = user is null ? null : _libraryManager.GetItemById<BaseItem>(itemId, user);
+        if (item is not null)
+        {
+            RecommendationFollows.SetExcluded(_recommendationPreferences, userId, item, false);
+        }
     }
 
     /// <summary>

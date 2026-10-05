@@ -8,6 +8,7 @@ using Jellyfin.Api.ModelBinders;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
@@ -34,6 +35,7 @@ public class TvShowsController : BaseJellyfinApiController
     private readonly ILibraryManager _libraryManager;
     private readonly IDtoService _dtoService;
     private readonly ITVSeriesManager _tvSeriesManager;
+    private readonly IDisplayPreferencesManager _recommendationPreferences;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="TvShowsController"/> class.
@@ -42,16 +44,19 @@ public class TvShowsController : BaseJellyfinApiController
     /// <param name="libraryManager">Instance of the <see cref="ILibraryManager"/> interface.</param>
     /// <param name="dtoService">Instance of the <see cref="IDtoService"/> interface.</param>
     /// <param name="tvSeriesManager">Instance of the <see cref="ITVSeriesManager"/> interface.</param>
+    /// <param name="recommendationPreferences">The per-user recommendation preferences.</param>
     public TvShowsController(
         IUserManager userManager,
         ILibraryManager libraryManager,
         IDtoService dtoService,
-        ITVSeriesManager tvSeriesManager)
+        ITVSeriesManager tvSeriesManager,
+        IDisplayPreferencesManager recommendationPreferences)
     {
         _userManager = userManager;
         _libraryManager = libraryManager;
         _dtoService = dtoService;
         _tvSeriesManager = tvSeriesManager;
+        _recommendationPreferences = recommendationPreferences;
     }
 
     /// <summary>
@@ -99,13 +104,15 @@ public class TvShowsController : BaseJellyfinApiController
         var options = new DtoOptions { Fields = fields }
             .AddAdditionalDtoOptions(enableImages, enableUserData, imageTypeLimit, enableImageTypes);
 
+        var excludedRecommendations = RecommendationFollows.GetExcluded(_recommendationPreferences, user.Id);
+
         var result = _tvSeriesManager.GetNextUp(
             new NextUpQuery
             {
-                Limit = limit,
+                Limit = excludedRecommendations.Count == 0 ? limit : null,
                 ParentId = parentId,
                 SeriesId = seriesId,
-                StartIndex = startIndex,
+                StartIndex = excludedRecommendations.Count == 0 ? startIndex : null,
                 User = user,
                 EnableTotalRecordCount = enableTotalRecordCount,
                 NextUpDateCutoff = nextUpDateCutoff ?? DateTime.MinValue,
@@ -114,11 +121,15 @@ public class TvShowsController : BaseJellyfinApiController
             },
             options);
 
-        var returnItems = _dtoService.GetBaseItemDtos(result.Items, options, user);
+        var visibleItems = excludedRecommendations.Count == 0
+            ? result.Items
+            : result.Items.Where(i => !excludedRecommendations.Contains(RecommendationFollows.Identity(i)))
+                .Skip(startIndex ?? 0).Take(limit ?? int.MaxValue).ToArray();
+        var returnItems = _dtoService.GetBaseItemDtos(visibleItems, options, user);
 
         return new QueryResult<BaseItemDto>(
             startIndex,
-            result.TotalRecordCount,
+            excludedRecommendations.Count == 0 ? result.TotalRecordCount : result.Items.Count(i => !excludedRecommendations.Contains(RecommendationFollows.Identity(i))),
             returnItems);
     }
 

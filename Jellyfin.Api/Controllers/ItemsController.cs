@@ -11,6 +11,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
 using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
@@ -44,6 +45,7 @@ public class ItemsController : BaseJellyfinApiController
     private readonly ISessionManager _sessionManager;
     private readonly IUserDataManager _userDataRepository;
     private readonly ISearchManager _searchManager;
+    private readonly IDisplayPreferencesManager _recommendationPreferences;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ItemsController"/> class.
@@ -56,6 +58,7 @@ public class ItemsController : BaseJellyfinApiController
     /// <param name="sessionManager">Instance of the <see cref="ISessionManager"/> interface.</param>
     /// <param name="userDataRepository">Instance of the <see cref="IUserDataManager"/> interface.</param>
     /// <param name="searchManager">Instance of the <see cref="ISearchManager"/> interface.</param>
+    /// <param name="recommendationPreferences">The per-user recommendation preferences.</param>
     public ItemsController(
         IUserManager userManager,
         ILibraryManager libraryManager,
@@ -64,7 +67,8 @@ public class ItemsController : BaseJellyfinApiController
         ILogger<ItemsController> logger,
         ISessionManager sessionManager,
         IUserDataManager userDataRepository,
-        ISearchManager searchManager)
+        ISearchManager searchManager,
+        IDisplayPreferencesManager recommendationPreferences)
     {
         _userManager = userManager;
         _libraryManager = libraryManager;
@@ -74,6 +78,47 @@ public class ItemsController : BaseJellyfinApiController
         _sessionManager = sessionManager;
         _userDataRepository = userDataRepository;
         _searchManager = searchManager;
+        _recommendationPreferences = recommendationPreferences;
+    }
+
+    /// <summary>Hides an item or its series from the calling user's recommendations.</summary>
+    /// <param name="itemId">The item identifier.</param>
+    /// <returns>No content when hidden.</returns>
+    [HttpPost("Items/{itemId}/Unfollow")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult Unfollow([FromRoute] Guid itemId)
+    {
+        var userId = User.GetUserId();
+        var user = _userManager.GetUserById(userId);
+        var item = user is null ? null : _libraryManager.GetItemById<BaseItem>(itemId, user);
+        if (item is null)
+        {
+            return NotFound();
+        }
+
+        RecommendationFollows.SetExcluded(_recommendationPreferences, userId, item, true);
+        return NoContent();
+    }
+
+    /// <summary>Allows an item or series back into the calling user's recommendations.</summary>
+    /// <param name="itemId">The item identifier.</param>
+    /// <returns>No content when followed.</returns>
+    [HttpDelete("Items/{itemId}/Unfollow")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult Follow([FromRoute] Guid itemId)
+    {
+        var userId = User.GetUserId();
+        var user = _userManager.GetUserById(userId);
+        var item = user is null ? null : _libraryManager.GetItemById<BaseItem>(itemId, user);
+        if (item is null)
+        {
+            return NotFound();
+        }
+
+        RecommendationFollows.SetExcluded(_recommendationPreferences, userId, item, false);
+        return NoContent();
     }
 
     /// <summary>
@@ -975,12 +1020,13 @@ public class ItemsController : BaseJellyfinApiController
                 .ToArray();
         }
 
+        var excludedRecommendations = RecommendationFollows.GetExcluded(_recommendationPreferences, requestUserId);
         var itemsResult = _libraryManager.GetItemsResult(new InternalItemsQuery(user)
         {
             OrderBy = [(ItemSortBy.DatePlayed, SortOrder.Descending)],
             IsResumable = true,
-            StartIndex = startIndex,
-            Limit = limit,
+            StartIndex = excludedRecommendations.Count == 0 ? startIndex : null,
+            Limit = excludedRecommendations.Count == 0 ? limit : null,
             ParentId = parentIdGuid,
             Recursive = true,
             DtoOptions = dtoOptions,
@@ -996,11 +1042,15 @@ public class ItemsController : BaseJellyfinApiController
             ExcludeItemIds = excludeItemIds
         });
 
-        var returnItems = _dtoService.GetBaseItemDtos(itemsResult.Items, dtoOptions, user);
+        var visibleItems = excludedRecommendations.Count == 0
+            ? itemsResult.Items
+            : itemsResult.Items.Where(i => !excludedRecommendations.Contains(RecommendationFollows.Identity(i)))
+                .Skip(startIndex ?? 0).Take(limit ?? int.MaxValue).ToArray();
+        var returnItems = _dtoService.GetBaseItemDtos(visibleItems, dtoOptions, user);
 
         return new QueryResult<BaseItemDto>(
             startIndex,
-            itemsResult.TotalRecordCount,
+            excludedRecommendations.Count == 0 ? itemsResult.TotalRecordCount : itemsResult.Items.Count(i => !excludedRecommendations.Contains(RecommendationFollows.Identity(i))),
             returnItems);
     }
 
